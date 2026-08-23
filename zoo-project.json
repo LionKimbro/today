@@ -1,0 +1,21 @@
+{
+  "zookeep-project-guid": "03e6122d-0439-4042-9231-03f54ff20b58",
+  "name": "today",
+  "repo-type": "python-2026-03",
+  "license": "CC0-1.0",
+  "repository": {
+    "name": "today",
+    "visibility": "public"
+  },
+  "python": {
+    "distribution": {
+      "name": "m1-today"
+    },
+    "import-packages": [
+      {
+        "name": "today",
+        "path": "src/today"
+      }
+    ]
+  }
+}
