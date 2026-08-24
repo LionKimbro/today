@@ -27,7 +27,7 @@ COLORS = {
     "status_text": "#D7E2EC",
 }
 
-LAYOUT_SCHEMA_VERSION = 1
+LAYOUT_SCHEMA_VERSION = 2
 ROW_DEFAULT_HEIGHT = 190
 ROW_MIN_HEIGHT = ROW_DEFAULT_HEIGHT
 PANEL_TITLES = {
@@ -44,50 +44,44 @@ PANEL_TITLES = {
 # Open collections of live widgets, keyed by their stable layout ids.
 widgets = {
     "rows": {},
+    "pages": {},
 }
 
 
 def make_empty_panel_state():
-    """Return the minimal state for a future panel host."""
+    """Return the minimal state for a future Today panel."""
     return {"panel_type": "empty"}
 
 
-def make_tab_state(name="Tab A"):
-    """Return one persisted tab with a stable identity and empty panel."""
+def make_row_state(pane_count=1):
+    """Return one independent document row with its requested pane count."""
     return {
-        "id": str(uuid.uuid4()),
-        "name": name,
-        "panel": make_empty_panel_state(),
+        "pane_count": pane_count,
+        "height": ROW_DEFAULT_HEIGHT,
+        "sash_positions": [],
+        "sash_proportions": [],
+        "panels": [make_empty_panel_state() for _ in range(pane_count)],
     }
 
 
-def make_pane_state():
-    """Return one pane containing its first normal tab."""
-    first_tab = make_tab_state()
+def make_page_state(name="Tab A", rows=None):
+    """Return one complete page/workspace with a stable identity."""
     return {
-        "tabs": [first_tab],
-        "selected_tab": first_tab["id"],
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "rows": rows if rows is not None else [make_row_state(1)],
     }
 
 # Small, JSON-friendly representation of the future serializable layout.
 layout = {
     "schema_version": LAYOUT_SCHEMA_VERSION,
     "outer_sash_position": None,
-    "rows": [
-        {
-            "pane_count": 2,
-            "height": ROW_DEFAULT_HEIGHT,
-            "sash_positions": [],
-            "panes": [make_pane_state(), make_pane_state()],
-        },
-        {
-            "pane_count": 1,
-            "height": ROW_DEFAULT_HEIGHT,
-            "sash_positions": [],
-            "panes": [make_pane_state()],
-        },
+    "pages": [
+        make_page_state("Tab A", [make_row_state(2), make_row_state(1)]),
     ],
+    "selected_page": None,
 }
+layout["selected_page"] = layout["pages"][0]["id"]
 
 
 def make_layout_document():
@@ -106,36 +100,41 @@ def validate_layout_document(document):
     saved_layout = document.get("layout", document)
     if not isinstance(saved_layout, dict):
         raise ValueError("Layout payload must be a JSON object.")
-    rows = saved_layout.get("rows")
-    if not isinstance(rows, list):
-        raise ValueError("Layout payload must contain a rows list.")
-    for row_index, row_state in enumerate(rows, start=1):
-        if not isinstance(row_state, dict):
-            raise ValueError(f"Row {row_index} is not an object.")
-        pane_count = row_state.get("pane_count")
-        if pane_count not in (1, 2, 3):
-            raise ValueError(f"Row {row_index} has an invalid pane count.")
-        row_height = row_state.setdefault("height", ROW_DEFAULT_HEIGHT)
-        if isinstance(row_height, bool) or not isinstance(row_height, int):
-            raise ValueError(f"Row {row_index} has an invalid height.")
-        if row_height < ROW_MIN_HEIGHT:
-            row_state["height"] = ROW_DEFAULT_HEIGHT
-        migrate_row_panes(row_state)
-        panes = row_state.get("panes")
-        if not isinstance(panes, list) or len(panes) < pane_count:
-            raise ValueError(f"Row {row_index} must contain a panes list.")
-        for pane_index, pane_state in enumerate(panes, start=1):
-            tabs = pane_state.get("tabs") if isinstance(pane_state, dict) else None
-            if not isinstance(tabs, list) or not tabs:
-                raise ValueError(f"Pane {pane_index} in row {row_index} needs a normal tab.")
-            for tab_state in tabs:
-                if not isinstance(tab_state, dict) or not tab_state.get("id"):
-                    raise ValueError(f"Pane {pane_index} in row {row_index} has an invalid tab.")
-                if not isinstance(tab_state.get("name"), str):
-                    raise ValueError(f"Pane {pane_index} in row {row_index} has an invalid tab name.")
-                if not isinstance(tab_state.get("panel"), dict):
-                    raise ValueError(f"Pane {pane_index} in row {row_index} has an invalid panel.")
-            pane_state.setdefault("selected_tab", tabs[0]["id"])
+    if "pages" not in saved_layout:
+        legacy_rows = saved_layout.pop("rows", [])
+        legacy_page = make_page_state("Tab A", legacy_rows)
+        saved_layout["pages"] = [legacy_page]
+        saved_layout["selected_page"] = legacy_page["id"]
+    pages = saved_layout.get("pages")
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("Layout payload must contain a non-empty pages list.")
+    for page_index, page_state in enumerate(pages, start=1):
+        if not isinstance(page_state, dict) or not page_state.get("id"):
+            raise ValueError(f"Page {page_index} is invalid.")
+        if not isinstance(page_state.get("name"), str):
+            raise ValueError(f"Page {page_index} has an invalid name.")
+        rows = page_state.get("rows")
+        if not isinstance(rows, list):
+            raise ValueError(f"Page {page_index} must contain a rows list.")
+        for row_index, row_state in enumerate(rows, start=1):
+            if not isinstance(row_state, dict):
+                raise ValueError(f"Row {row_index} in page {page_index} is invalid.")
+            pane_count = row_state.get("pane_count")
+            if pane_count not in (1, 2, 3):
+                raise ValueError(f"Row {row_index} in page {page_index} has an invalid pane count.")
+            row_height = row_state.setdefault("height", ROW_DEFAULT_HEIGHT)
+            if isinstance(row_height, bool) or not isinstance(row_height, int):
+                raise ValueError(f"Row {row_index} in page {page_index} has an invalid height.")
+            if row_height < ROW_MIN_HEIGHT:
+                row_state["height"] = ROW_DEFAULT_HEIGHT
+            row_state.setdefault("sash_proportions", [])
+            if not isinstance(row_state["sash_proportions"], list):
+                raise ValueError(f"Row {row_index} in page {page_index} has invalid sash proportions.")
+            panels = row_state.get("panels")
+            if not isinstance(panels, list) or len(panels) < pane_count:
+                raise ValueError(f"Row {row_index} in page {page_index} must contain panels.")
+    if saved_layout.get("selected_page") not in {page["id"] for page in pages}:
+        saved_layout["selected_page"] = pages[0]["id"]
     return json.loads(json.dumps(saved_layout))
 
 
@@ -150,21 +149,6 @@ def read_layout_file(filename):
     """Read and validate a saved layout document from a UTF-8 JSON file."""
     with open(filename, "r", encoding="utf-8") as stream:
         return validate_layout_document(json.load(stream))
-
-
-def migrate_row_panes(row_state):
-    """Move legacy direct panels into the pane/tab storage shape."""
-    if "panes" not in row_state:
-        legacy_panels = row_state.pop("panels", [])
-        row_state["panes"] = []
-        for panel_state in legacy_panels:
-            tab_state = make_tab_state()
-            tab_state["panel"] = panel_state
-            row_state["panes"].append({
-                "tabs": [tab_state],
-                "selected_tab": tab_state["id"],
-            })
-    return row_state
 
 
 def get_panel_title(panel_type):
@@ -217,10 +201,11 @@ class StatusBar(ttk.Frame):
 class PanelWidget(ttk.Frame):
     """A visible host for one future Today panel."""
 
-    def __init__(self, parent, row_widget, panel_state):
-        self.panel_state = panel_state
+    def __init__(self, parent, row_widget, panel_index):
+        self.panel_state = row_widget.row_state["panels"][panel_index]
         super().__init__(parent, padding=8, relief="solid", borderwidth=1, style="Panel.TFrame")
         self.row_widget = row_widget
+        self.panel_index = panel_index
 
         header = ttk.Frame(self, style="Panel.TFrame")
         header.grid(row=0, column=0, sticky="ew")
@@ -280,144 +265,6 @@ class PanelWidget(ttk.Frame):
         self.row_widget.middle_area.set_status(f"Panel set to {title}.")
 
 
-class TabbedHost(ttk.Frame):
-    """A pane-local notebook containing normal tabs and a trailing plus tab."""
-
-    def __init__(self, parent, row_widget, pane_state):
-        super().__init__(parent)
-        self.row_widget = row_widget
-        self.pane_state = pane_state
-        self.tab_frames = {}
-        self.plus_frame = None
-        self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=0, column=0, sticky="nsew")
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        self.notebook.bind("<Button-1>", self.handle_when_notebook_is_clicked, add="+")
-        self.notebook.bind("<Double-1>", self.handle_when_notebook_is_double_clicked, add="+")
-        self.notebook.bind("<<NotebookTabChanged>>", self.handle_when_notebook_tab_changed)
-        self.render_tabs()
-
-    def render_tabs(self):
-        """Reconcile normal tab frames and keep the plus sentinel last."""
-        for frame in self.tab_frames.values():
-            self.notebook.forget(frame)
-            frame.destroy()
-        if self.plus_frame is not None:
-            self.notebook.forget(self.plus_frame)
-            self.plus_frame.destroy()
-        self.tab_frames.clear()
-        for tab_state in self.pane_state["tabs"]:
-            frame = ttk.Frame(self.notebook)
-            frame.columnconfigure(0, weight=1)
-            frame.rowconfigure(0, weight=1)
-            panel = PanelWidget(frame, self.row_widget, tab_state["panel"])
-            panel.grid(row=0, column=0, sticky="nsew")
-            self.notebook.add(frame, text=tab_state["name"])
-            self.tab_frames[tab_state["id"]] = frame
-        self.plus_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.plus_frame, text="+")
-        self.select_saved_tab()
-
-    def select_saved_tab(self):
-        """Select the stored normal tab, falling back to the first tab."""
-        selected_id = self.pane_state.get("selected_tab")
-        if selected_id not in self.tab_frames:
-            selected_id = self.pane_state["tabs"][0]["id"]
-            self.pane_state["selected_tab"] = selected_id
-        self.notebook.select(self.tab_frames[selected_id])
-
-    def handle_when_notebook_is_clicked(self, event):
-        """Turn a click on the trailing plus tab into tab creation."""
-        if self.notebook.identify(event.x, event.y) != "label":
-            return
-        tab_index = self.notebook.index(f"@{event.x},{event.y}")
-        if tab_index == len(self.pane_state["tabs"]):
-            self.add_tab()
-            return "break"
-
-    def handle_when_notebook_is_double_clicked(self, event):
-        """Open the tab editor for a normal tab, never for the plus tab."""
-        if self.notebook.identify(event.x, event.y) != "label":
-            return
-        tab_index = self.notebook.index(f"@{event.x},{event.y}")
-        if tab_index < len(self.pane_state["tabs"]):
-            self.open_tab_editor(self.pane_state["tabs"][tab_index])
-            return "break"
-
-    def handle_when_notebook_tab_changed(self, _event):
-        """Keep the selected normal tab id in the pane model."""
-        selected_widget = self.notebook.select()
-        if not selected_widget:
-            return
-        if self.plus_frame is not None and selected_widget == str(self.plus_frame):
-            self.add_tab()
-            return
-        for tab_id, frame in self.tab_frames.items():
-            if selected_widget == str(frame):
-                self.pane_state["selected_tab"] = tab_id
-                return
-
-    def add_tab(self):
-        """Create and select a normal tab immediately before the plus tab."""
-        used_names = {tab["name"] for tab in self.pane_state["tabs"]}
-        number = 0
-        while True:
-            suffix = chr(ord("A") + number) if number < 26 else str(number + 1)
-            name = f"Tab {suffix}"
-            if name not in used_names:
-                break
-            number += 1
-        tab_state = make_tab_state(name)
-        self.pane_state["tabs"].append(tab_state)
-        self.pane_state["selected_tab"] = tab_state["id"]
-        self.render_tabs()
-        self.row_widget.middle_area.set_status(f"Created {name}.")
-
-    def open_tab_editor(self, tab_state):
-        """Open a modal dialog for renaming or deleting one normal tab."""
-        dialog = tk.Toplevel(self)
-        dialog.title("Edit Tab")
-        dialog.transient(self.winfo_toplevel())
-        dialog.resizable(False, False)
-        ttk.Label(dialog, text="Tab Name:").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 3))
-        name = tk.StringVar(value=tab_state["name"])
-        entry = ttk.Entry(dialog, textvariable=name, width=30)
-        entry.grid(row=1, column=0, columnspan=3, sticky="ew", padx=10, pady=(0, 10))
-        entry.focus_set()
-        entry.selection_range(0, "end")
-
-        def rename_tab():
-            new_name = name.get().strip()
-            if not new_name:
-                return
-            tab_state["name"] = new_name
-            self.notebook.tab(self.tab_frames[tab_state["id"]], text=new_name)
-            dialog.destroy()
-
-        def delete_tab():
-            if len(self.pane_state["tabs"]) <= 1:
-                return
-            self.pane_state["tabs"] = [
-                tab for tab in self.pane_state["tabs"] if tab["id"] != tab_state["id"]
-            ]
-            self.pane_state["selected_tab"] = self.pane_state["tabs"][0]["id"]
-            self.render_tabs()
-            self.row_widget.middle_area.set_status("Tab deleted.")
-            dialog.destroy()
-
-        ttk.Button(dialog, text="Rename", command=rename_tab).grid(row=2, column=0, padx=(10, 3), pady=(0, 10))
-        delete_button = ttk.Button(dialog, text="Delete", command=delete_tab)
-        delete_button.grid(row=2, column=1, padx=3, pady=(0, 10))
-        if len(self.pane_state["tabs"]) <= 1:
-            delete_button.state(["disabled"])
-        ttk.Button(dialog, text="Cancel", command=dialog.destroy).grid(row=2, column=2, padx=(3, 10), pady=(0, 10))
-        dialog.bind("<Return>", lambda _event: rename_tab())
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
-        dialog.grab_set()
-        dialog.wait_window()
-
-
 class RowWidget(tk.Frame):
     """One vertically stacked row, containing one to three panel hosts."""
 
@@ -465,48 +312,66 @@ class RowWidget(tk.Frame):
         self.resize_handle.grid(row=1, column=0, columnspan=2, sticky="ew")
         self.rowconfigure(1, weight=0)
         initial_sash_positions = list(row_state.get("sash_positions", []))
+        initial_sash_proportions = list(row_state.get("sash_proportions", []))
         self.set_pane_count(row_state["pane_count"], announce=False)
-        self.row_state["sash_positions"] = initial_sash_positions
+        if initial_sash_positions or initial_sash_proportions:
+            self.row_state["sash_positions"] = initial_sash_positions
+            self.row_state["sash_proportions"] = initial_sash_proportions
 
     def set_pane_count(self, pane_count, announce=True):
         """Replace this row's panel hosts with the requested pane count."""
         pane_count = max(1, min(3, int(pane_count)))
-        existing_panes = self.row_state.get("panes", [])
+        existing_panels = self.row_state.get("panels", [])
         self.row_state["pane_count"] = pane_count
-        self.row_state["panes"] = (
-            existing_panes[:pane_count]
-            + [make_pane_state() for _ in range(max(0, pane_count - len(existing_panes)))]
+        self.row_state["panels"] = (
+            existing_panels[:pane_count]
+            + [make_empty_panel_state() for _ in range(max(0, pane_count - len(existing_panels)))]
         )
         self.row_state["sash_positions"] = []
+        self.row_state["sash_proportions"] = [
+            (index + 1) / pane_count for index in range(pane_count - 1)
+        ]
         for count, button in self.control_buttons.items():
             button.configure(relief="sunken" if count == pane_count else "raised")
         for child in self.panedwindow.panes():
             self.panedwindow.forget(child)
             self.nametowidget(child).destroy()
         for panel_index in range(pane_count):
-            tabbed_host = TabbedHost(self.panedwindow, self, self.row_state["panes"][panel_index])
-            self.panedwindow.add(tabbed_host, weight=1)
+            panel = PanelWidget(self.panedwindow, self, panel_index)
+            self.panedwindow.add(panel, weight=1)
         self.after_idle(self.restore_sash_positions)
         if announce:
             self.middle_area.set_status(f"Row {self.row_index + 1} set to {pane_count} pane{'s' if pane_count != 1 else ''}.")
 
     def capture_sash_positions(self):
-        """Keep current inner sash locations in the explicit layout model."""
+        """Keep current inner sash locations and width proportions in the model."""
         try:
             sash_positions = []
+            sash_proportions = []
+            available_width = max(1, self.panedwindow.winfo_width())
             for index in range(max(0, self.row_state["pane_count"] - 1)):
-                sash_positions.append(int(self.panedwindow.sashpos(index)))
+                position = int(self.panedwindow.sashpos(index))
+                sash_positions.append(position)
+                sash_proportions.append(position / available_width)
             self.row_state["sash_positions"] = sash_positions
+            self.row_state["sash_proportions"] = sash_proportions
         except tk.TclError:
             pass
 
     def restore_sash_positions(self):
         """Apply serialized sash positions after Tk has measured the row."""
-        if self.panedwindow.winfo_width() <= 1 and self.row_state.get("sash_positions"):
+        saved_proportions = self.row_state.get("sash_proportions", [])
+        saved_positions = self.row_state.get("sash_positions", [])
+        if self.panedwindow.winfo_width() <= 1 and (saved_proportions or saved_positions):
             self.after(50, self.restore_sash_positions)
             return
         try:
-            for index, position in enumerate(self.row_state.get("sash_positions", [])):
+            available_width = max(1, self.panedwindow.winfo_width())
+            if saved_proportions:
+                positions = [round(proportion * available_width) for proportion in saved_proportions]
+            else:
+                positions = saved_positions
+            for index, position in enumerate(positions):
                 self.panedwindow.sashpos(index, position)
             self.capture_sash_positions()
         except tk.TclError:
@@ -579,9 +444,11 @@ class RowResizeHandle(tk.Frame):
 class MiddleArea(tk.Frame):
     """Scrollable canvas and stacked row workspace."""
 
-    def __init__(self, parent, status_bar):
+    def __init__(self, parent, status_bar, page_state):
         super().__init__(parent, background=COLORS["middle"], padx=8, pady=8)
         self.status_bar = status_bar
+        self.page_state = page_state
+        self.row_widgets = {}
         self.canvas = tk.Canvas(self, highlightthickness=0, background=COLORS["middle"])
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.rows_frame = tk.Frame(self.canvas, background=COLORS["middle"])
@@ -602,20 +469,25 @@ class MiddleArea(tk.Frame):
         """Render all rows and keep the Add a Row control last."""
         for child in self.rows_frame.winfo_children():
             child.destroy()
-        widgets["rows"].clear()
-        for row_index, row_state in enumerate(layout["rows"]):
+        self.row_widgets.clear()
+        for row_index, row_state in enumerate(self.page_state["rows"]):
             row = RowWidget(self.rows_frame, self, row_index, row_state)
             row.grid(row=row_index, column=0, sticky="ew")
-            widgets["rows"][row_index] = row
+            self.row_widgets[row_index] = row
         add_button = ttk.Button(self.rows_frame, text="Add a Row", command=self.add_row)
-        add_button.grid(row=len(layout["rows"]), column=0, pady=(4, 12))
-        self.rows_frame.rowconfigure(len(layout["rows"]), weight=0)
+        add_button.grid(row=len(self.page_state["rows"]), column=0, pady=(4, 12))
+        self.rows_frame.rowconfigure(len(self.page_state["rows"]), weight=0)
         self.add_button = add_button
 
     def capture_live_layout_state(self):
         """Copy measured sash positions from live rows into the model."""
-        for row in widgets["rows"].values():
+        for row in self.row_widgets.values():
             row.capture_sash_positions()
+
+    def restore_live_layout_state(self):
+        """Reapply this page's horizontal sash positions after page switching."""
+        for row in self.row_widgets.values():
+            row.after_idle(row.restore_sash_positions)
 
     def add_row(self):
         """Append a row without rebuilding existing rows or moving their sashes."""
@@ -624,23 +496,24 @@ class MiddleArea(tk.Frame):
             "pane_count": 1,
             "height": ROW_DEFAULT_HEIGHT,
             "sash_positions": [],
-            "panes": [make_pane_state()],
+            "sash_proportions": [],
+            "panels": [make_empty_panel_state()],
         }
-        layout["rows"].append(row_state)
-        row_index = len(layout["rows"]) - 1
+        self.page_state["rows"].append(row_state)
+        row_index = len(self.page_state["rows"]) - 1
         row = RowWidget(self.rows_frame, self, row_index, row_state)
         row.grid(row=row_index, column=0, sticky="ew")
-        widgets["rows"][row_index] = row
+        self.row_widgets[row_index] = row
         self.add_button.grid(row=row_index + 1, column=0, pady=(4, 12))
         self.rows_frame.rowconfigure(row_index, weight=0)
-        self.set_status(f"Added Row {len(layout['rows'])}.")
+        self.set_status(f"Added Row {len(self.page_state['rows'])}.")
 
     def remove_row(self, row_index):
         """Remove one row from the explicit layout and redraw the workspace."""
-        if not 0 <= row_index < len(layout["rows"]):
+        if not 0 <= row_index < len(self.page_state["rows"]):
             return
         self.capture_live_layout_state()
-        del layout["rows"][row_index]
+        del self.page_state["rows"][row_index]
         self.render_rows()
         self.set_status("Row removed.")
 
@@ -669,6 +542,156 @@ class MiddleArea(tk.Frame):
         self.canvas.yview_scroll(int(-event.delta / 120), "units")
 
 
+class PageHost(tk.Frame):
+    """Whole-page notebook whose normal tabs each own a complete workspace."""
+
+    def __init__(self, parent, status_bar):
+        super().__init__(parent, background=COLORS["middle"])
+        self.status_bar = status_bar
+        self.page_frames = {}
+        self.middle_areas = {}
+        self.plus_frame = None
+        self.active_page_id = None
+        self.notebook = ttk.Notebook(self, style="Page.TNotebook")
+        self.notebook.grid(row=0, column=0, sticky="nsew")
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.notebook.bind("<Button-1>", self.handle_when_notebook_is_clicked, add="+")
+        self.notebook.bind("<Double-1>", self.handle_when_notebook_is_double_clicked, add="+")
+        self.notebook.bind("<<NotebookTabChanged>>", self.handle_when_notebook_tab_changed)
+        self.render_pages()
+
+    def render_pages(self):
+        """Rebuild page hosts while preserving each page's stored workspace."""
+        for frame in self.page_frames.values():
+            self.notebook.forget(frame)
+            frame.destroy()
+        if self.plus_frame is not None:
+            self.notebook.forget(self.plus_frame)
+            self.plus_frame.destroy()
+        self.page_frames.clear()
+        self.middle_areas.clear()
+        for page_state in layout["pages"]:
+            frame = tk.Frame(self.notebook, background=COLORS["middle"])
+            middle_area = MiddleArea(frame, self.status_bar, page_state)
+            middle_area.pack(fill="both", expand=True)
+            self.notebook.add(frame, text=page_state["name"])
+            self.page_frames[page_state["id"]] = frame
+            self.middle_areas[page_state["id"]] = middle_area
+        self.plus_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.plus_frame, text="+")
+        self.select_saved_page()
+
+    def select_saved_page(self):
+        """Select the stored page, falling back to the first real page."""
+        page_ids = {page["id"] for page in layout["pages"]}
+        selected_page = layout.get("selected_page")
+        if selected_page not in page_ids:
+            selected_page = layout["pages"][0]["id"]
+            layout["selected_page"] = selected_page
+        self.active_page_id = selected_page
+        self.notebook.select(self.page_frames[selected_page])
+        self.middle_areas[selected_page].restore_live_layout_state()
+
+    def capture_live_layout_state(self):
+        """Capture the visible page without sampling collapsed hidden pages."""
+        if self.active_page_id in self.middle_areas:
+            self.middle_areas[self.active_page_id].capture_live_layout_state()
+
+    def handle_when_notebook_is_clicked(self, event):
+        """Turn a click on the trailing plus tab into page creation."""
+        if self.notebook.identify(event.x, event.y) != "label":
+            return
+        tab_index = self.notebook.index(f"@{event.x},{event.y}")
+        if tab_index == len(layout["pages"]):
+            self.add_page()
+            return "break"
+
+    def handle_when_notebook_is_double_clicked(self, event):
+        """Open the page editor for a real page, never for the plus tab."""
+        if self.notebook.identify(event.x, event.y) != "label":
+            return
+        page_index = self.notebook.index(f"@{event.x},{event.y}")
+        if page_index < len(layout["pages"]):
+            self.open_page_editor(layout["pages"][page_index])
+            return "break"
+
+    def handle_when_notebook_tab_changed(self, _event):
+        """Keep the selected whole-page id in the persisted model."""
+        selected_widget = self.notebook.select()
+        if not selected_widget:
+            return
+        if self.plus_frame is not None and selected_widget == str(self.plus_frame):
+            self.add_page()
+            return
+        for page_id, frame in self.page_frames.items():
+            if selected_widget == str(frame):
+                if self.active_page_id is not None and self.active_page_id != page_id:
+                    self.capture_live_layout_state()
+                layout["selected_page"] = page_id
+                self.active_page_id = page_id
+                self.middle_areas[page_id].restore_live_layout_state()
+                return
+
+    def add_page(self):
+        """Create a new page with one row and one pane, then select it."""
+        self.capture_live_layout_state()
+        used_names = {page["name"] for page in layout["pages"]}
+        number = 0
+        while True:
+            suffix = chr(ord("A") + number) if number < 26 else str(number + 1)
+            name = f"Tab {suffix}"
+            if name not in used_names:
+                break
+            number += 1
+        page_state = make_page_state(name)
+        layout["pages"].append(page_state)
+        layout["selected_page"] = page_state["id"]
+        self.render_pages()
+        self.status_bar.set_message(f"Created {name} page.")
+
+    def open_page_editor(self, page_state):
+        """Open a modal dialog for renaming or deleting one real page."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Edit Page")
+        dialog.transient(self.winfo_toplevel())
+        dialog.resizable(False, False)
+        ttk.Label(dialog, text="Page Name:").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 3))
+        name = tk.StringVar(value=page_state["name"])
+        entry = ttk.Entry(dialog, textvariable=name, width=30)
+        entry.grid(row=1, column=0, columnspan=3, sticky="ew", padx=10, pady=(0, 10))
+        entry.focus_set()
+        entry.selection_range(0, "end")
+
+        def rename_page():
+            new_name = name.get().strip()
+            if not new_name:
+                return
+            page_state["name"] = new_name
+            self.notebook.tab(self.page_frames[page_state["id"]], text=new_name)
+            dialog.destroy()
+
+        def delete_page():
+            if len(layout["pages"]) <= 1:
+                return
+            layout["pages"] = [page for page in layout["pages"] if page["id"] != page_state["id"]]
+            layout["selected_page"] = layout["pages"][0]["id"]
+            self.render_pages()
+            self.status_bar.set_message("Page deleted.")
+            dialog.destroy()
+
+        ttk.Button(dialog, text="Rename", command=rename_page).grid(row=2, column=0, padx=(10, 3), pady=(0, 10))
+        delete_button = ttk.Button(dialog, text="Delete", command=delete_page)
+        delete_button.grid(row=2, column=1, padx=3, pady=(0, 10))
+        if len(layout["pages"]) <= 1:
+            delete_button.state(["disabled"])
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).grid(row=2, column=2, padx=(3, 10), pady=(0, 10))
+        dialog.bind("<Return>", lambda _event: rename_page())
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.grab_set()
+        dialog.wait_window()
+
+
 class TodayApp:
     """Own the root window and the cockpit's three structural regions."""
 
@@ -683,6 +706,18 @@ class TodayApp:
         style.configure("PanelTitle.TLabel", background=COLORS["panel"], foreground=COLORS["panel_text"], font=("TkDefaultFont", 10, "bold"))
         style.configure("PanelBody.TLabel", background=COLORS["panel"], foreground=COLORS["panel_text"])
         style.configure("StatusOuter.TFrame", background=COLORS["separator"])
+        style.configure("Page.TNotebook", background=COLORS["middle"], borderwidth=0)
+        style.configure(
+            "Page.TNotebook.Tab",
+            background="#FFFFFF",
+            foreground=COLORS["panel_text"],
+            padding=(12, 5),
+        )
+        style.map(
+            "Page.TNotebook.Tab",
+            background=[("selected", "#FFFFFF"), ("active", "#F7FAFC")],
+            foreground=[("selected", COLORS["panel_text"]), ("active", COLORS["panel_text"])],
+        )
 
         self.menu_bar = tk.Menu(root)
         layout_menu = tk.Menu(self.menu_bar, tearoff=False)
@@ -709,12 +744,11 @@ class TodayApp:
             row=1, column=0, sticky="ew", pady=(12, 0)
         )
         self.top_area.columnconfigure(0, weight=1)
-        self.middle_area = MiddleArea(self.outer_panedwindow, None)
         self.status_bar = StatusBar(root)
         self.status_bar.grid(row=1, column=0, sticky="ew")
-        self.middle_area.status_bar = self.status_bar
+        self.page_host = PageHost(self.outer_panedwindow, self.status_bar)
         self.outer_panedwindow.add(self.top_area, weight=1)
-        self.outer_panedwindow.add(self.middle_area, weight=3)
+        self.outer_panedwindow.add(self.page_host, weight=3)
         self.root.after_idle(self.restore_outer_sash_position)
 
     def restore_outer_sash_position(self):
@@ -731,7 +765,7 @@ class TodayApp:
             layout["outer_sash_position"] = self.outer_panedwindow.sashpos(0)
         except tk.TclError:
             pass
-        self.middle_area.capture_live_layout_state()
+        self.page_host.capture_live_layout_state()
 
     def save_layout_to_file(self):
         """Prompt for a JSON path and save the current cockpit configuration."""
@@ -765,7 +799,7 @@ class TodayApp:
         layout.clear()
         layout.update(loaded_layout)
         layout.setdefault("schema_version", LAYOUT_SCHEMA_VERSION)
-        self.middle_area.render_rows()
+        self.page_host.render_pages()
         self.root.after_idle(self.restore_outer_sash_position)
         self.status_bar.set_message(f"Layout loaded: {filename}")
 
