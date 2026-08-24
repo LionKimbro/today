@@ -1,0 +1,13 @@
+{
+  "id": "today",
+  "identity": {
+    "name": "today",
+    "title": "Today",
+    "tags": [
+      "cockpit",
+      "today",
+      "m1"
+    ],
+    "hook": "a cockpit for today"
+  }
+}

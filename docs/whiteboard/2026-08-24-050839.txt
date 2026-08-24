@@ -1,0 +1,11 @@
+2026-08-23  (Robert's back)
+
+working from: https://chatgpt.com/c/6a8a4b99-8fb8-83e8-b52d-cc3ed997ec92
+
+ideas:
+* we will use m1lattice.net,2026:/date/yyyy-mm-dd/ as an entity basis
+* I'll use: lionkimbro@gmail.com,2026:/person/lionkimbro/ to refer to myself
+* things will be linked to these entities to say, "this is what it's about"
+
+first version of today:
+* just a headliner, 

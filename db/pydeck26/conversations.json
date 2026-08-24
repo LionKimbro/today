@@ -1,1 +1,44 @@
-{"items": []}
+{
+  "items": [
+    {
+      "id": "c5e78b98-b42e-48d0-b38b-0934a904e973",
+      "date": "2026-08-22",
+      "title": "2nd or 3rd Startup Conversation",
+      "url": "https://chatgpt.com/c/6a8a4b99-8fb8-83e8-b52d-cc3ed997ec92",
+      "hook": "\"what's the smallest thing I could implement?\"",
+      "description": "2026-08-23, 6:26pm.\nWorked out basic things that the Today cockpit focuses on: Orientation, Direction, Operations, and Witness.  And then we talked about minimal implementation.  This turned into a basic framing for the app."
+    },
+    {
+      "id": "54ebe792-cc2e-424c-bb80-6f2d374eea99",
+      "date": "2026-08-18",
+      "title": "2nd conversation?",
+      "url": "https://chatgpt.com/c/6a84d774-1cd0-83e8-a880-5bda70144db3",
+      "hook": "",
+      "description": "2026-08-18, 6:26pm."
+    },
+    {
+      "id": "81771527-8d14-4b41-9234-8902ac0db011",
+      "date": "2026-08-24",
+      "title": "Dividing into 3 Parts",
+      "url": "https://chatgpt.com/c/6a8bfb7a-c3bc-83e8-8807-b5afb5aef4b8",
+      "hook": "1. GUI interaction 2. Multi-threading 3. Fair Play",
+      "description": ""
+    },
+    {
+      "id": "48313678-2210-4eba-ae39-1847ae55a12f",
+      "date": "2026-08-24",
+      "title": "Part I.  GUI Interaction Model",
+      "url": "",
+      "hook": "",
+      "description": ""
+    },
+    {
+      "id": "ef81e93a-dbe8-4ad4-bde2-e597e1c6b594",
+      "date": "2026-08-24",
+      "title": "Part I aside: \"Is 36KiB too much?\"",
+      "url": "https://chatgpt.com/c/6a8c0895-2bec-83e8-8740-f7c340856c30",
+      "hook": "It's not.",
+      "description": "Also, panel IDs should be separate from panel positions."
+    }
+  ]
+}
