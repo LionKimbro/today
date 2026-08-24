@@ -6,7 +6,7 @@ future Today instruments; they do not know anything about todos, dates, or M1.
 
 import json
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, messagebox, ttk
 
 
 # Shared program facts.  These are mutated in place so the running prototype's
@@ -16,6 +16,28 @@ g = {
     "debug_enabled": False,
 }
 
+COLORS = {
+    "top": "#081525",
+    "middle": "#10243A",
+    "panel": "#F3F6F8",
+    "panel_text": "#162332",
+    "separator": "#35516B",
+    "status": "#0B1828",
+    "status_text": "#D7E2EC",
+}
+
+LAYOUT_SCHEMA_VERSION = 1
+PANEL_TITLES = {
+    "empty": "Empty Panel",
+    "orientation": "Orientation",
+    "todo": "Todo",
+    "whiteboard": "Whiteboard",
+    "journal": "Journal",
+    "objectives": "Objectives",
+    "metrics": "Metrics",
+    "upcoming": "Upcoming",
+}
+
 # Open collections of live widgets, keyed by their stable layout ids.
 widgets = {
     "rows": {},
@@ -23,6 +45,7 @@ widgets = {
 
 # Small, JSON-friendly representation of the future serializable layout.
 layout = {
+    "schema_version": LAYOUT_SCHEMA_VERSION,
     "outer_sash_position": None,
     "rows": [
         {
@@ -39,20 +62,81 @@ layout = {
 }
 
 
+def make_layout_document():
+    """Return the versioned, JSON-ready document for the current layout."""
+    return {
+        "format": "today-cockpit-layout",
+        "schema_version": LAYOUT_SCHEMA_VERSION,
+        "layout": json.loads(json.dumps(layout)),
+    }
+
+
+def validate_layout_document(document):
+    """Validate and return a layout payload from a saved document."""
+    if not isinstance(document, dict):
+        raise ValueError("Layout document must be a JSON object.")
+    saved_layout = document.get("layout", document)
+    if not isinstance(saved_layout, dict):
+        raise ValueError("Layout payload must be a JSON object.")
+    rows = saved_layout.get("rows")
+    if not isinstance(rows, list):
+        raise ValueError("Layout payload must contain a rows list.")
+    for row_index, row_state in enumerate(rows, start=1):
+        if not isinstance(row_state, dict):
+            raise ValueError(f"Row {row_index} is not an object.")
+        pane_count = row_state.get("pane_count")
+        if pane_count not in (1, 2, 3):
+            raise ValueError(f"Row {row_index} has an invalid pane count.")
+        panels = row_state.get("panels")
+        if not isinstance(panels, list) or len(panels) < pane_count:
+            raise ValueError(f"Row {row_index} must contain a panels list.")
+    return json.loads(json.dumps(saved_layout))
+
+
+def write_layout_file(filename):
+    """Serialize the current layout document to a UTF-8 JSON file."""
+    with open(filename, "w", encoding="utf-8") as stream:
+        json.dump(make_layout_document(), stream, indent=2)
+        stream.write("\n")
+
+
+def read_layout_file(filename):
+    """Read and validate a saved layout document from a UTF-8 JSON file."""
+    with open(filename, "r", encoding="utf-8") as stream:
+        return validate_layout_document(json.load(stream))
+
+
 def make_empty_panel_state():
     """Return the minimal state for a future panel host."""
     return {"panel_type": "empty"}
+
+
+def get_panel_title(panel_type):
+    """Return the display title for a serialized panel type."""
+    return PANEL_TITLES.get(panel_type, PANEL_TITLES["empty"])
 
 
 class StatusBar(ttk.Frame):
     """Fixed bottom status area with a small debug-copy convenience."""
 
     def __init__(self, parent):
-        super().__init__(parent, padding=(8, 3))
+        super().__init__(parent, padding=(1, 1), style="StatusOuter.TFrame")
+        self.status_surface = tk.Frame(self, background=COLORS["status"])
+        self.status_surface.grid(row=0, column=0, sticky="nsew")
         self.message = tk.StringVar(value="Ready.")
-        self.label = ttk.Label(self, textvariable=self.message, anchor="w")
+        self.label = tk.Label(
+            self.status_surface,
+            textvariable=self.message,
+            anchor="w",
+            background=COLORS["status"],
+            foreground=COLORS["status_text"],
+            padx=7,
+            pady=3,
+        )
         self.label.grid(row=0, column=0, sticky="ew")
+        self.status_surface.columnconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
         self._click_times = []
         self.bind("<Button-1>", self.handle_when_status_bar_is_clicked)
         self.label.bind("<Button-1>", self.handle_when_status_bar_is_clicked)
@@ -78,24 +162,28 @@ class PanelWidget(ttk.Frame):
     """A visible host for one future Today panel."""
 
     def __init__(self, parent, row_widget, panel_index):
-        super().__init__(parent, padding=8, relief="solid", borderwidth=1)
+        self.panel_state = row_widget.row_state["panels"][panel_index]
+        super().__init__(parent, padding=8, relief="solid", borderwidth=1, style="Panel.TFrame")
         self.row_widget = row_widget
         self.panel_index = panel_index
 
-        header = ttk.Frame(self)
+        header = ttk.Frame(self, style="Panel.TFrame")
         header.grid(row=0, column=0, sticky="ew")
-        ttk.Label(header, text="Empty Panel", font=("TkDefaultFont", 10, "bold")).grid(
+        self.title = tk.StringVar(value=get_panel_title(self.panel_state.get("panel_type", "empty")))
+        ttk.Label(header, textvariable=self.title, style="PanelTitle.TLabel").grid(
             row=0, column=0, sticky="w"
         )
-        ttk.Button(
+        self.menu_button = ttk.Button(
             header,
             text="⋮",
             width=3,
             command=self.handle_when_panel_menu_button_is_clicked,
-        ).grid(row=0, column=1, sticky="e")
+        )
+        self.menu_button.grid(row=0, column=1, sticky="e")
         ttk.Label(
             self,
             text="Panel host\nReady for a future Today instrument",
+            style="PanelBody.TLabel",
             anchor="center",
             justify="center",
         ).grid(row=1, column=0, sticky="nsew", pady=(18, 0))
@@ -104,44 +192,99 @@ class PanelWidget(ttk.Frame):
         self.rowconfigure(1, weight=1)
 
     def handle_when_panel_menu_button_is_clicked(self):
-        """Open temporary row manipulation commands for this panel."""
+        """Open content-selection commands attached to this panel."""
         menu = tk.Menu(self, tearoff=False)
-        for pane_count in (1, 2, 3):
-            menu.add_command(
-                label=f"Set row to {pane_count} pane{'s' if pane_count != 1 else ''}",
-                command=lambda count=pane_count: self.row_widget.set_pane_count(count),
-            )
+        panel_types = (
+            ("Empty", "Empty Panel"),
+            ("Orientation", "Orientation"),
+            ("Todo", "Todo"),
+            ("Whiteboard", "Whiteboard"),
+            ("Journal", "Journal"),
+            ("Objectives", "Objectives"),
+            ("Metrics", "Metrics"),
+            ("Upcoming", "Upcoming"),
+        )
+        menu.add_command(label="Panel Type", state="disabled")
         menu.add_separator()
-        menu.add_command(label="Remove row", command=self.row_widget.remove_row)
-        menu.tk_popup(self.winfo_rootx(), self.winfo_rooty() + self.winfo_height())
+        for panel_type, title in panel_types:
+            menu.add_command(
+                label=panel_type,
+                command=lambda selected_type=panel_type, selected_title=title: self.set_panel_type(
+                    selected_type, selected_title
+                ),
+            )
+        menu.tk_popup(
+            self.menu_button.winfo_rootx(),
+            self.menu_button.winfo_rooty() + self.menu_button.winfo_height(),
+        )
+
+    def set_panel_type(self, panel_type, title):
+        """Change the placeholder identity without changing row geometry."""
+        self.panel_state["panel_type"] = panel_type.lower()
+        self.title.set(title)
+        self.row_widget.middle_area.set_status(f"Panel set to {title}.")
 
 
-class RowWidget(ttk.Frame):
+class RowWidget(tk.Frame):
     """One vertically stacked row, containing one to three panel hosts."""
 
     def __init__(self, parent, middle_area, row_index, row_state):
-        super().__init__(parent, height=190, padding=(0, 0, 0, 10))
+        super().__init__(parent, height=190, background=COLORS["middle"])
         self.middle_area = middle_area
         self.row_index = row_index
         self.row_state = row_state
+        self.control_strip = tk.Frame(self, width=34, background=COLORS["middle"])
+        self.control_strip.grid(row=0, column=0, sticky="ns", padx=(0, 5), pady=(0, 10))
+        self.control_strip.grid_propagate(False)
+        self.control_buttons = {}
+        for button_row, pane_count in enumerate((1, 2, 3)):
+            button = tk.Button(
+                self.control_strip,
+                text=str(pane_count),
+                width=2,
+                padx=0,
+                pady=1,
+                command=lambda count=pane_count: self.set_pane_count(count),
+            )
+            button.grid(row=button_row, column=0, padx=2, pady=(3 if button_row == 0 else 1, 1))
+            self.control_buttons[pane_count] = button
+        delete_button = tk.Button(
+            self.control_strip,
+            text="x",
+            width=2,
+            padx=0,
+            pady=1,
+            command=self.remove_row,
+        )
+        delete_button.grid(row=3, column=0, padx=2, pady=(5, 1))
         self.panedwindow = ttk.Panedwindow(self, orient="horizontal")
-        self.panedwindow.pack(fill="both", expand=True)
-        self.pack_propagate(False)
+        self.panedwindow.grid(row=0, column=1, sticky="nsew", pady=(0, 10))
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.grid_propagate(False)
+        initial_sash_positions = list(row_state.get("sash_positions", []))
         self.set_pane_count(row_state["pane_count"], announce=False)
+        self.row_state["sash_positions"] = initial_sash_positions
 
     def set_pane_count(self, pane_count, announce=True):
         """Replace this row's panel hosts with the requested pane count."""
         pane_count = max(1, min(3, int(pane_count)))
+        existing_panels = self.row_state.get("panels", [])
         self.row_state["pane_count"] = pane_count
-        self.row_state["panels"] = [make_empty_panel_state() for _ in range(pane_count)]
+        self.row_state["panels"] = (
+            existing_panels[:pane_count]
+            + [make_empty_panel_state() for _ in range(max(0, pane_count - len(existing_panels)))]
+        )
         self.row_state["sash_positions"] = []
+        for count, button in self.control_buttons.items():
+            button.configure(relief="sunken" if count == pane_count else "raised")
         for child in self.panedwindow.panes():
             self.panedwindow.forget(child)
             self.nametowidget(child).destroy()
         for panel_index in range(pane_count):
             panel = PanelWidget(self.panedwindow, self, panel_index)
             self.panedwindow.add(panel, weight=1)
-        self.after_idle(self.capture_sash_positions)
+        self.after_idle(self.restore_sash_positions)
         if announce:
             self.middle_area.set_status(f"Row {self.row_index + 1} set to {pane_count} pane{'s' if pane_count != 1 else ''}.")
 
@@ -155,20 +298,29 @@ class RowWidget(ttk.Frame):
         except tk.TclError:
             pass
 
+    def restore_sash_positions(self):
+        """Apply serialized sash positions after Tk has measured the row."""
+        try:
+            for index, position in enumerate(self.row_state.get("sash_positions", [])):
+                self.panedwindow.sashpos(index, position)
+            self.capture_sash_positions()
+        except tk.TclError:
+            pass
+
     def remove_row(self):
         """Ask the owning middle area to remove this row."""
         self.middle_area.remove_row(self.row_index)
 
 
-class MiddleArea(ttk.Frame):
+class MiddleArea(tk.Frame):
     """Scrollable canvas and stacked row workspace."""
 
     def __init__(self, parent, status_bar):
-        super().__init__(parent, padding=8)
+        super().__init__(parent, background=COLORS["middle"], padx=8, pady=8)
         self.status_bar = status_bar
-        self.canvas = tk.Canvas(self, highlightthickness=0, background="#f4f4f4")
+        self.canvas = tk.Canvas(self, highlightthickness=0, background=COLORS["middle"])
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.rows_frame = ttk.Frame(self.canvas)
+        self.rows_frame = tk.Frame(self.canvas, background=COLORS["middle"])
         self.rows_window = self.canvas.create_window((0, 0), window=self.rows_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.canvas.grid(row=0, column=0, sticky="nsew")
@@ -194,21 +346,35 @@ class MiddleArea(ttk.Frame):
         add_button = ttk.Button(self.rows_frame, text="Add a Row", command=self.add_row)
         add_button.grid(row=len(layout["rows"]), column=0, pady=(4, 12))
         self.rows_frame.rowconfigure(len(layout["rows"]), weight=0)
+        self.add_button = add_button
+
+    def capture_live_layout_state(self):
+        """Copy measured sash positions from live rows into the model."""
+        for row in widgets["rows"].values():
+            row.capture_sash_positions()
 
     def add_row(self):
-        """Append a one-pane row immediately before the add button."""
-        layout["rows"].append({
+        """Append a row without rebuilding existing rows or moving their sashes."""
+        self.capture_live_layout_state()
+        row_state = {
             "pane_count": 1,
             "sash_positions": [],
             "panels": [make_empty_panel_state()],
-        })
-        self.render_rows()
+        }
+        layout["rows"].append(row_state)
+        row_index = len(layout["rows"]) - 1
+        row = RowWidget(self.rows_frame, self, row_index, row_state)
+        row.grid(row=row_index, column=0, sticky="ew")
+        widgets["rows"][row_index] = row
+        self.add_button.grid(row=row_index + 1, column=0, pady=(4, 12))
+        self.rows_frame.rowconfigure(row_index, weight=0)
         self.set_status(f"Added Row {len(layout['rows'])}.")
 
     def remove_row(self, row_index):
         """Remove one row from the explicit layout and redraw the workspace."""
         if not 0 <= row_index < len(layout["rows"]):
             return
+        self.capture_live_layout_state()
         del layout["rows"][row_index]
         self.render_rows()
         self.set_status("Row removed.")
@@ -247,14 +413,37 @@ class TodayApp:
         self.root.geometry("1100x760")
         self.root.minsize(720, 480)
         self.root.protocol("WM_DELETE_WINDOW", self.handle_when_application_close_is_requested)
+        style = ttk.Style(self.root)
+        style.configure("Panel.TFrame", background=COLORS["panel"])
+        style.configure("PanelTitle.TLabel", background=COLORS["panel"], foreground=COLORS["panel_text"], font=("TkDefaultFont", 10, "bold"))
+        style.configure("PanelBody.TLabel", background=COLORS["panel"], foreground=COLORS["panel_text"])
+        style.configure("StatusOuter.TFrame", background=COLORS["separator"])
+
+        self.menu_bar = tk.Menu(root)
+        layout_menu = tk.Menu(self.menu_bar, tearoff=False)
+        layout_menu.add_command(label="Save Layout…", command=self.save_layout_to_file)
+        layout_menu.add_command(label="Load Layout…", command=self.load_layout_from_file)
+        self.menu_bar.add_cascade(label="Layout", menu=layout_menu)
+        root.configure(menu=self.menu_bar)
 
         self.outer_panedwindow = ttk.Panedwindow(root, orient="vertical")
         self.outer_panedwindow.grid(row=0, column=0, sticky="nsew")
         root.rowconfigure(0, weight=1)
         root.columnconfigure(0, weight=1)
 
-        self.top_area = ttk.Frame(self.outer_panedwindow, padding=12)
-        ttk.Label(self.top_area, text="Top Area", font=("TkDefaultFont", 16, "bold")).pack(anchor="nw")
+        self.top_area = tk.Frame(self.outer_panedwindow, background=COLORS["top"], padx=12, pady=12)
+        tk.Label(
+            self.top_area,
+            text="Top Area",
+            background=COLORS["top"],
+            foreground="#E8EEF5",
+            font=("TkDefaultFont", 16, "bold"),
+            anchor="nw",
+        ).grid(row=0, column=0, sticky="nw")
+        tk.Frame(self.top_area, height=1, background=COLORS["separator"]).grid(
+            row=1, column=0, sticky="ew", pady=(12, 0)
+        )
+        self.top_area.columnconfigure(0, weight=1)
         self.middle_area = MiddleArea(self.outer_panedwindow, None)
         self.status_bar = StatusBar(root)
         self.status_bar.grid(row=1, column=0, sticky="ew")
@@ -270,6 +459,50 @@ class TodayApp:
                 self.outer_panedwindow.sashpos(0, layout["outer_sash_position"])
             except tk.TclError:
                 pass
+
+    def capture_live_layout_state(self):
+        """Copy current widget geometry into the serializable layout model."""
+        try:
+            layout["outer_sash_position"] = self.outer_panedwindow.sashpos(0)
+        except tk.TclError:
+            pass
+        self.middle_area.capture_live_layout_state()
+
+    def save_layout_to_file(self):
+        """Prompt for a JSON path and save the current cockpit configuration."""
+        self.capture_live_layout_state()
+        filename = filedialog.asksaveasfilename(
+            title="Save Today Cockpit Layout",
+            defaultextension=".json",
+            filetypes=(("JSON files", "*.json"), ("All files", "*.*")),
+        )
+        if not filename:
+            return
+        try:
+            write_layout_file(filename)
+            self.status_bar.set_message(f"Layout saved: {filename}")
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Save Layout", str(error), parent=self.root)
+
+    def load_layout_from_file(self):
+        """Prompt for a JSON path and apply its cockpit configuration."""
+        filename = filedialog.askopenfilename(
+            title="Load Today Cockpit Layout",
+            filetypes=(("JSON files", "*.json"), ("All files", "*.*")),
+        )
+        if not filename:
+            return
+        try:
+            loaded_layout = read_layout_file(filename)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            messagebox.showerror("Load Layout", str(error), parent=self.root)
+            return
+        layout.clear()
+        layout.update(loaded_layout)
+        layout.setdefault("schema_version", LAYOUT_SCHEMA_VERSION)
+        self.middle_area.render_rows()
+        self.root.after_idle(self.restore_outer_sash_position)
+        self.status_bar.set_message(f"Layout loaded: {filename}")
 
     def handle_when_application_close_is_requested(self):
         """Capture the outer sash before closing the experiment."""
