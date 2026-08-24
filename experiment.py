@@ -27,6 +27,10 @@ COLORS = {
 }
 
 LAYOUT_SCHEMA_VERSION = 1
+ROW_DEFAULT_HEIGHT = 190
+ROW_HEIGHT_STEP = 16
+ROW_MIN_HEIGHT = ROW_DEFAULT_HEIGHT
+ROW_MAX_HEIGHT = 600
 PANEL_TITLES = {
     "empty": "Empty Panel",
     "orientation": "Orientation",
@@ -50,11 +54,13 @@ layout = {
     "rows": [
         {
             "pane_count": 2,
+            "height": ROW_DEFAULT_HEIGHT,
             "sash_positions": [],
             "panels": [{"panel_type": "empty"}, {"panel_type": "empty"}],
         },
         {
             "pane_count": 1,
+            "height": ROW_DEFAULT_HEIGHT,
             "sash_positions": [],
             "panels": [{"panel_type": "empty"}],
         },
@@ -87,6 +93,13 @@ def validate_layout_document(document):
         pane_count = row_state.get("pane_count")
         if pane_count not in (1, 2, 3):
             raise ValueError(f"Row {row_index} has an invalid pane count.")
+        row_height = row_state.setdefault("height", ROW_DEFAULT_HEIGHT)
+        if isinstance(row_height, bool) or not isinstance(row_height, int):
+            raise ValueError(f"Row {row_index} has an invalid height.")
+        if row_height < ROW_MIN_HEIGHT:
+            row_state["height"] = ROW_DEFAULT_HEIGHT
+        elif row_height > ROW_MAX_HEIGHT:
+            raise ValueError(f"Row {row_index} height is outside the supported range.")
         panels = row_state.get("panels")
         if not isinstance(panels, list) or len(panels) < pane_count:
             raise ValueError(f"Row {row_index} must contain a panels list.")
@@ -229,7 +242,8 @@ class RowWidget(tk.Frame):
     """One vertically stacked row, containing one to three panel hosts."""
 
     def __init__(self, parent, middle_area, row_index, row_state):
-        super().__init__(parent, height=190, background=COLORS["middle"])
+        row_state.setdefault("height", ROW_DEFAULT_HEIGHT)
+        super().__init__(parent, height=row_state["height"], background=COLORS["middle"])
         self.middle_area = middle_area
         self.row_index = row_index
         self.row_state = row_state
@@ -257,8 +271,29 @@ class RowWidget(tk.Frame):
             command=self.remove_row,
         )
         delete_button.grid(row=3, column=0, padx=2, pady=(5, 1))
+        tk.Button(
+            self.control_strip,
+            text="-",
+            width=2,
+            padx=0,
+            pady=1,
+            command=lambda: self.change_height(-ROW_HEIGHT_STEP),
+        ).grid(row=4, column=0, padx=2, pady=(7, 1))
+        tk.Button(
+            self.control_strip,
+            text="v",
+            width=2,
+            padx=0,
+            pady=1,
+            command=lambda: self.change_height(ROW_HEIGHT_STEP),
+        ).grid(row=5, column=0, padx=2, pady=1)
         self.panedwindow = ttk.Panedwindow(self, orient="horizontal")
         self.panedwindow.grid(row=0, column=1, sticky="nsew", pady=(0, 10))
+        self.panedwindow.bind(
+            "<ButtonRelease-1>",
+            self.handle_when_horizontal_sash_is_released,
+            add="+",
+        )
         self.columnconfigure(1, weight=1)
         self.rowconfigure(0, weight=1)
         self.grid_propagate(False)
@@ -291,15 +326,18 @@ class RowWidget(tk.Frame):
     def capture_sash_positions(self):
         """Keep current inner sash locations in the explicit layout model."""
         try:
-            self.row_state["sash_positions"] = [
-                self.panedwindow.sashpos(index)
-                for index in range(max(0, self.row_state["pane_count"] - 1))
-            ]
+            sash_positions = []
+            for index in range(max(0, self.row_state["pane_count"] - 1)):
+                sash_positions.append(int(self.panedwindow.sashpos(index)))
+            self.row_state["sash_positions"] = sash_positions
         except tk.TclError:
             pass
 
     def restore_sash_positions(self):
         """Apply serialized sash positions after Tk has measured the row."""
+        if self.panedwindow.winfo_width() <= 1 and self.row_state.get("sash_positions"):
+            self.after(50, self.restore_sash_positions)
+            return
         try:
             for index, position in enumerate(self.row_state.get("sash_positions", [])):
                 self.panedwindow.sashpos(index, position)
@@ -307,9 +345,25 @@ class RowWidget(tk.Frame):
         except tk.TclError:
             pass
 
+    def handle_when_horizontal_sash_is_released(self, _event):
+        """Capture a row's divider positions immediately after a drag."""
+        self.after_idle(self.capture_sash_positions)
+
     def remove_row(self):
         """Ask the owning middle area to remove this row."""
         self.middle_area.remove_row(self.row_index)
+
+    def change_height(self, amount):
+        """Make this row shorter or taller by one small control step."""
+        new_height = max(
+            ROW_MIN_HEIGHT,
+            min(ROW_MAX_HEIGHT, self.row_state["height"] + amount),
+        )
+        if new_height == self.row_state["height"]:
+            return
+        self.row_state["height"] = new_height
+        self.configure(height=new_height)
+        self.middle_area.set_status(f"Row {self.row_index + 1} height: {new_height}px.")
 
 
 class MiddleArea(tk.Frame):
@@ -358,6 +412,7 @@ class MiddleArea(tk.Frame):
         self.capture_live_layout_state()
         row_state = {
             "pane_count": 1,
+            "height": ROW_DEFAULT_HEIGHT,
             "sash_positions": [],
             "panels": [make_empty_panel_state()],
         }
