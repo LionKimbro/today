@@ -38,29 +38,46 @@ reg = {
     "panel_widgets": None,
     "panel_state": None,
     "panel_type": None,
+    "position_id": None,
+    "position_widgets": None,
     "target_consequences": None,
 }
 
 global_event_queue = deque()
 panel_event_queues = {
-    "panel-1": deque(),
-    "panel-2": deque(),
+    "panel-todo-1": deque(),
+    "panel-journal-1": deque(),
+    "panel-journal-2": deque(),
 }
 gui_consequence_queue = deque()
+panel_reconfiguration_queue = deque()
+
+position_panel = {
+    "position-1": "panel-todo-1",
+    "position-2": "panel-journal-1",
+}
+
+position_widgets = {
+    "position-1": {},
+    "position-2": {},
+}
 
 panel_type = {
-    "panel-1": TODO_PANEL,
-    "panel-2": JOURNAL_PANEL,
+    "panel-todo-1": TODO_PANEL,
+    "panel-journal-1": JOURNAL_PANEL,
+    "panel-journal-2": JOURNAL_PANEL,
 }
 
 panel_state = {
-    "panel-1": {"items": [{"text": "Try the event route", "done": False}]},
-    "panel-2": {"text": "Write a thought, then press Enter."},
+    "panel-todo-1": {"items": [{"text": "Try the event route", "done": False}]},
+    "panel-journal-1": {"text": "Write a thought, then press Enter."},
+    "panel-journal-2": {"text": "This journal remembers its own text."},
 }
 
 panel_widgets = {
-    "panel-1": {},
-    "panel-2": {},
+    "panel-todo-1": {},
+    "panel-journal-1": {},
+    "panel-journal-2": {},
 }
 
 top_widgets = {}
@@ -81,6 +98,13 @@ def queue_global_event(event_type, **data):
 def queue_panel_event(panel_id, event_type, **data):
     panel_event_queues[panel_id].append(
         {"type": event_type, "panel_id": panel_id, **data}
+    )
+    request_idle_processing()
+
+
+def queue_panel_reconfiguration(position_id, new_panel_id):
+    panel_reconfiguration_queue.append(
+        {"position_id": position_id, "new_panel_id": new_panel_id}
     )
     request_idle_processing()
 
@@ -146,13 +170,32 @@ def handle_when_orientation_text_is_submitted(event):
         queue_global_event(EDIT_ORIENTATION, text=event.widget.get())
 
 
+def handle_when_panel_switch_button_is_clicked(position_id):
+    if g["shut-up"]:
+        return
+    current_panel_id = position_panel[position_id]
+    if current_panel_id == "panel-todo-1":
+        new_panel_id = "panel-journal-2"
+    else:
+        new_panel_id = "panel-todo-1"
+    queue_panel_reconfiguration(position_id, new_panel_id)
+
+
 def process_pending_work():
     g["processing_scheduled"] = False
     process_global_events()
     process_panel_events()
     process_gui_consequences()
 
-    if global_event_queue or any(panel_event_queues.values()) or gui_consequence_queue:
+    if not global_event_queue and not any(panel_event_queues.values()):
+        process_panel_reconfigurations()
+
+    if (
+        global_event_queue
+        or any(panel_event_queues.values())
+        or gui_consequence_queue
+        or panel_reconfiguration_queue
+    ):
         request_idle_processing()
 
 
@@ -193,6 +236,27 @@ def process_panel_events():
     clear_active_panel_registers()
 
 
+def process_panel_reconfigurations():
+    while panel_reconfiguration_queue:
+        request = panel_reconfiguration_queue.popleft()
+        process_panel_reconfiguration(request)
+
+
+def process_panel_reconfiguration(request):
+    position_id = request["position_id"]
+    old_panel_id = position_panel[position_id]
+    new_panel_id = request["new_panel_id"]
+    if old_panel_id == new_panel_id:
+        return
+
+    tear_down_panel_gui(position_id, old_panel_id)
+    position_panel[position_id] = new_panel_id
+    install_panel_gui(position_id)
+
+    panel_event_queues[old_panel_id].clear()
+    panel_event_queues[new_panel_id].clear()
+
+
 def load_active_panel_registers(event):
     reg["event"] = event
     reg["panel_id"] = event["panel_id"]
@@ -207,6 +271,8 @@ def clear_active_panel_registers():
     reg["panel_widgets"] = None
     reg["panel_state"] = None
     reg["panel_type"] = None
+    reg["position_id"] = None
+    reg["position_widgets"] = None
 
 
 def handle_todo_panel_event():
@@ -234,16 +300,62 @@ def process_gui_consequences():
         if consequence["target"] == "global":
             update_global_gui(consequence)
         else:
-            load_active_gui_registers(consequence["target"])
+            position_id = find_panel_position(consequence["target"])
+            if position_id is None:
+                continue
+            load_active_gui_registers(position_id)
             panel_gui_handler[reg["panel_type"]]()
     clear_active_panel_registers()
 
 
-def load_active_gui_registers(panel_id):
+def find_panel_position(panel_id):
+    for position_id, assigned_panel_id in position_panel.items():
+        if assigned_panel_id == panel_id:
+            return position_id
+    return None
+
+
+def load_active_gui_registers(position_id):
+    panel_id = position_panel[position_id]
+    reg["position_id"] = position_id
+    reg["position_widgets"] = position_widgets[position_id]
     reg["panel_id"] = panel_id
     reg["panel_widgets"] = panel_widgets[panel_id]
     reg["panel_state"] = panel_state[panel_id]
     reg["panel_type"] = panel_type[panel_id]
+
+
+def install_panel_gui(position_id):
+    load_active_gui_registers(position_id)
+    panel_builder[reg["panel_type"]]()
+    refresh_panel_host_label()
+    clear_active_panel_registers()
+
+
+def tear_down_panel_gui(position_id, panel_id):
+    widgets = panel_widgets[panel_id]
+    g["shut-up"] = True
+    try:
+        if widgets.get("content_frame") is not None:
+            widgets["content_frame"].destroy()
+        widgets.clear()
+    finally:
+        g["shut-up"] = False
+
+    if reg["position_id"] == position_id:
+        clear_active_panel_registers()
+
+
+def refresh_panel_host_label():
+    g["shut-up"] = True
+    try:
+        position_id = reg["position_id"]
+        panel_id = reg["panel_id"]
+        position_widgets[position_id]["panel_label"].configure(
+            text=f"{panel_id} / {reg['panel_type']}"
+        )
+    finally:
+        g["shut-up"] = False
 
 
 def update_global_gui(consequence):
@@ -305,34 +417,59 @@ def build_top_area(parent):
     top_widgets["heartbeat_label"].pack(side="right")
 
 
-def build_todo_panel(parent, panel_id):
-    frame = ttk.LabelFrame(parent, text="Panel A — TODO", padding=8)
-    frame.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=8)
-    panel_widgets[panel_id]["status_label"] = ttk.Label(frame)
+def build_todo_panel_gui():
+    panel_id = reg["panel_id"]
+    host = reg["position_widgets"]["host"]
+    content_frame = ttk.Frame(host, padding=8)
+    content_frame.pack(fill="both", expand=True)
+    panel_widgets[panel_id]["content_frame"] = content_frame
+    panel_widgets[panel_id]["status_label"] = ttk.Label(content_frame)
     panel_widgets[panel_id]["status_label"].pack(anchor="w", pady=(0, 8))
-    item = panel_state[panel_id]["items"][0]
-    panel_widgets[panel_id]["status_label"].configure(
-        text=("done" if item["done"] else "open") + ": " + item["text"]
-    )
     ttk.Button(
-        frame,
+        content_frame,
         text="Toggle first item",
         command=lambda: handle_when_todo_toggle_button_is_clicked(panel_id),
     ).pack(anchor="w")
+    update_todo_panel_gui()
 
 
-def build_journal_panel(parent, panel_id):
-    frame = ttk.LabelFrame(parent, text="Panel B — JOURNAL", padding=8)
-    frame.pack(side="left", fill="both", expand=True, padx=(4, 8), pady=8)
+def build_journal_panel_gui():
+    panel_id = reg["panel_id"]
+    host = reg["position_widgets"]["host"]
+    content_frame = ttk.Frame(host, padding=8)
+    content_frame.pack(fill="both", expand=True)
+    panel_widgets[panel_id]["content_frame"] = content_frame
     text_var = tk.StringVar(value=panel_state[panel_id]["text"])
     panel_widgets[panel_id]["text_var"] = text_var
-    entry = ttk.Entry(frame, textvariable=text_var, width=36)
+    entry = ttk.Entry(content_frame, textvariable=text_var, width=36)
     entry.pack(fill="x")
     entry.bind(
         "<Return>",
         lambda event: handle_when_journal_entry_is_submitted(event, panel_id),
     )
-    ttk.Label(frame, text="Press Enter to queue an edit event.").pack(anchor="w", pady=(8, 0))
+    ttk.Label(content_frame, text="Press Enter to queue an edit event.").pack(
+        anchor="w", pady=(8, 0)
+    )
+
+
+panel_builder = {
+    TODO_PANEL: build_todo_panel_gui,
+    JOURNAL_PANEL: build_journal_panel_gui,
+}
+
+
+def build_panel_host(parent, position_id):
+    host = ttk.LabelFrame(parent, text=position_id, padding=4)
+    host.pack(side="left", fill="both", expand=True, padx=8, pady=8)
+    position_widgets[position_id]["host"] = host
+    position_widgets[position_id]["panel_label"] = ttk.Label(host)
+    position_widgets[position_id]["panel_label"].pack(anchor="w", padx=8, pady=(4, 0))
+    if position_id == "position-1":
+        ttk.Button(
+            host,
+            text="Replace panel",
+            command=lambda: handle_when_panel_switch_button_is_clicked(position_id),
+        ).pack(anchor="w", padx=8, pady=(4, 0))
 
 
 def build_experiment_window():
@@ -342,8 +479,10 @@ def build_experiment_window():
     build_top_area(root)
     panels = ttk.Frame(root)
     panels.pack(fill="both", expand=True)
-    build_todo_panel(panels, "panel-1")
-    build_journal_panel(panels, "panel-2")
+    build_panel_host(panels, "position-1")
+    build_panel_host(panels, "position-2")
+    install_panel_gui("position-1")
+    install_panel_gui("position-2")
     root.after(1000, handle_when_heartbeat_timer_fires)
     return root
 
