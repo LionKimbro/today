@@ -55,6 +55,9 @@ reg = {"event": None, "model": None, "panel_id": None}
 
 COLORS = {
     "top": "#081525",
+    "row_controls": "#0B1A2B",
+    "row_controls_hover": "#17304A",
+    "row_controls_text": "#B8C4D0",
     "middle": "#10243A",
     "panel": "#F3F6F8",
     "panel_text": "#162332",
@@ -127,13 +130,11 @@ def make_tab(title):
 
 def make_day_model(day):
     """Create a complete independent layout for a date."""
-    tab_a = make_tab("Tab A")
-    tab_b = make_tab("Tab B")
-    tab_b["rows"] = [make_row(1), make_row(2)]
+    main_tab = make_tab("main")
     model = {
         "date": day,
-        "tabs": [tab_a, tab_b],
-        "selected_tab_id": tab_a["tab_id"],
+        "tabs": [main_tab],
+        "selected_tab_id": main_tab["tab_id"],
         "panel_at": {},
         "special_panel_slots": {},
     }
@@ -405,13 +406,22 @@ def build_row(parent, model, tab, row_number, row):
     row_frame = tk.Frame(parent, height=row["height"], background=COLORS["middle"])
     row_frame.pack(fill="x", expand=False)
     row_frame.pack_propagate(False)
-    controls = tk.Frame(row_frame, width=34, background=COLORS["middle"])
+    controls = tk.Frame(row_frame, width=34, background=COLORS["row_controls"])
     controls.pack(side="left", fill="y")
     for count in (1, 2, 3):
-        ttk.Button(
+        tk.Button(
             controls,
             text=str(count),
             width=2,
+            padx=0,
+            pady=1,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
+            background=COLORS["row_controls"],
+            foreground=COLORS["row_controls_text"],
+            activebackground=COLORS["row_controls_hover"],
+            activeforeground="#E5EBF1",
             command=lambda selected=count: post_event({
                 "type": SET_PANE_COUNT,
                 "tab_id": tab["tab_id"],
@@ -419,10 +429,19 @@ def build_row(parent, model, tab, row_number, row):
                 "pane_count": selected,
             }),
         ).pack(pady=1)
-    ttk.Button(
+    tk.Button(
         controls,
         text="x",
         width=2,
+        padx=0,
+        pady=1,
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=0,
+        background=COLORS["row_controls"],
+        foreground=COLORS["row_controls_text"],
+        activebackground=COLORS["row_controls_hover"],
+        activeforeground="#E5EBF1",
         command=lambda: post_event({"type": DELETE_ROW, "tab_id": tab["tab_id"], "row_number": row_number}),
     ).pack(pady=(6, 1))
     paned = ttk.Panedwindow(row_frame, orient="horizontal")
@@ -707,8 +726,20 @@ def build_window():
     style = ttk.Style(root)
     style.configure("Panel.TFrame", background=COLORS["panel"])
     style.configure("PanelTitle.TLabel", background=COLORS["panel"], foreground=COLORS["panel_text"], font=("TkDefaultFont", 10, "bold"))
+    style.configure("Page.TNotebook", background=COLORS["middle"], borderwidth=0)
+    style.configure(
+        "Page.TNotebook.Tab",
+        background="#FFFFFF",
+        foreground=COLORS["panel_text"],
+        padding=(12, 5),
+    )
+    style.map(
+        "Page.TNotebook.Tab",
+        background=[("selected", "#FFFFFF"), ("active", "#F7FAFC")],
+        foreground=[("selected", COLORS["panel_text"]), ("active", COLORS["panel_text"])],
+    )
     build_top_area(window)
-    notebook = ttk.Notebook(window)
+    notebook = ttk.Notebook(window, style="Page.TNotebook")
     notebook.pack(fill="both", expand=True)
     widgets["notebook"] = notebook
     notebook.bind("<<NotebookTabChanged>>", handle_when_notebook_tab_is_changed)
