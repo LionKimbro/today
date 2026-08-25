@@ -44,11 +44,7 @@ reg = {
 }
 
 global_event_queue = deque()
-panel_event_queues = {
-    "panel-todo-1": deque(),
-    "panel-journal-1": deque(),
-    "panel-journal-2": deque(),
-}
+panel_event_queues = {}
 gui_consequence_queue = deque()
 panel_reconfiguration_queue = deque()
 
@@ -318,6 +314,7 @@ def clear_active_panel_registers():
     reg["panel_type"] = None
     reg["position_id"] = None
     reg["position_widgets"] = None
+    reg["target_consequences"] = None
 
 
 def handle_todo_panel_event():
