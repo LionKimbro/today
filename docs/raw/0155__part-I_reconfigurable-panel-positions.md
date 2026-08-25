@@ -1,3 +1,7 @@
+```
+date: 2026-08-25
+```
+
 # Today Interaction Experiment — Panel Host / Panel Identity Revision
 
 Revise the current `experiment.py` interaction-model experiment.

@@ -52,35 +52,67 @@ panel_event_queues = {
 gui_consequence_queue = deque()
 panel_reconfiguration_queue = deque()
 
-position_panel = {
-    "position-1": "panel-todo-1",
-    "position-2": "panel-journal-1",
-}
-
 position_widgets = {
     "position-1": {},
     "position-2": {},
 }
 
-panel_type = {
-    "panel-todo-1": TODO_PANEL,
-    "panel-journal-1": JOURNAL_PANEL,
-    "panel-journal-2": JOURNAL_PANEL,
-}
+day_state = {}
+position_mounted_panel = {}
 
-panel_state = {
-    "panel-todo-1": {"items": [{"text": "Try the event route", "done": False}]},
-    "panel-journal-1": {"text": "Write a thought, then press Enter."},
-    "panel-journal-2": {"text": "This journal remembers its own text."},
-}
-
-panel_widgets = {
-    "panel-todo-1": {},
-    "panel-journal-1": {},
-    "panel-journal-2": {},
-}
+panel_type = {}
+panel_state = {}
+panel_widgets = {}
 
 top_widgets = {}
+
+
+def ensure_day_state(day):
+    if day in day_state:
+        return day_state[day]
+
+    day_text = day.isoformat()
+    todo_panel_id = f"panel-{day_text}-todo-1"
+    journal_panel_id = f"panel-{day_text}-journal-1"
+    switch_journal_panel_id = f"panel-{day_text}-journal-2"
+
+    day_state[day] = {
+        "position_panel": {
+            "position-1": todo_panel_id,
+            "position-2": journal_panel_id,
+        },
+        "todo_panel_id": todo_panel_id,
+        "journal_panel_id": journal_panel_id,
+        "switch_journal_panel_id": switch_journal_panel_id,
+    }
+
+    panel_type[todo_panel_id] = TODO_PANEL
+    panel_type[journal_panel_id] = JOURNAL_PANEL
+    panel_type[switch_journal_panel_id] = JOURNAL_PANEL
+    panel_state[todo_panel_id] = {
+        "items": [{"text": f"Try the event route on {day_text}", "done": False}]
+    }
+    panel_state[journal_panel_id] = {
+        "text": f"Write a thought for {day_text}."
+    }
+    panel_state[switch_journal_panel_id] = {
+        "text": f"This alternate journal remembers {day_text}."
+    }
+    for panel_id in (todo_panel_id, journal_panel_id, switch_journal_panel_id):
+        panel_event_queues[panel_id] = deque()
+        panel_widgets[panel_id] = {}
+
+    return day_state[day]
+
+
+def current_day_configuration():
+    return ensure_day_state(g["selected_day"])
+
+
+def queue_reconfiguration_for_day(day):
+    configuration = ensure_day_state(day)
+    for position_id, panel_id in configuration["position_panel"].items():
+        queue_panel_reconfiguration(position_id, panel_id, day)
 
 
 def request_idle_processing():
@@ -97,14 +129,16 @@ def queue_global_event(event_type, **data):
 
 def queue_panel_event(panel_id, event_type, **data):
     panel_event_queues[panel_id].append(
-        {"type": event_type, "panel_id": panel_id, **data}
+        {"type": event_type, "panel_id": panel_id, "day": g["selected_day"], **data}
     )
     request_idle_processing()
 
 
-def queue_panel_reconfiguration(position_id, new_panel_id):
+def queue_panel_reconfiguration(position_id, new_panel_id, day=None):
+    if day is None:
+        day = g["selected_day"]
     panel_reconfiguration_queue.append(
-        {"position_id": position_id, "new_panel_id": new_panel_id}
+        {"day": day, "position_id": position_id, "new_panel_id": new_panel_id}
     )
     request_idle_processing()
 
@@ -173,11 +207,12 @@ def handle_when_orientation_text_is_submitted(event):
 def handle_when_panel_switch_button_is_clicked(position_id):
     if g["shut-up"]:
         return
-    current_panel_id = position_panel[position_id]
-    if current_panel_id == "panel-todo-1":
-        new_panel_id = "panel-journal-2"
+    configuration = current_day_configuration()
+    current_panel_id = configuration["position_panel"][position_id]
+    if current_panel_id == configuration["todo_panel_id"]:
+        new_panel_id = configuration["switch_journal_panel_id"]
     else:
-        new_panel_id = "panel-todo-1"
+        new_panel_id = configuration["todo_panel_id"]
     queue_panel_reconfiguration(position_id, new_panel_id)
 
 
@@ -211,12 +246,15 @@ def process_current_global_event():
     target_consequences("global")
     if event_type == SELECT_PREVIOUS_DAY:
         g["selected_day"] -= timedelta(days=1)
+        queue_reconfiguration_for_day(g["selected_day"])
         queue_consequence("refresh_top_area", {})
     elif event_type == SELECT_NEXT_DAY:
         g["selected_day"] += timedelta(days=1)
+        queue_reconfiguration_for_day(g["selected_day"])
         queue_consequence("refresh_top_area", {})
     elif event_type == SELECT_TODAY:
         g["selected_day"] = date.today()
+        queue_reconfiguration_for_day(g["selected_day"])
         queue_consequence("refresh_top_area", {})
     elif event_type == SECOND_ELAPSED:
         g["heartbeat_count"] += 1
@@ -230,6 +268,8 @@ def process_panel_events():
     for panel_id in panel_event_queues:
         while panel_event_queues[panel_id]:
             event = panel_event_queues[panel_id].popleft()
+            if event["day"] != g["selected_day"]:
+                continue
             load_active_panel_registers(event)
             target_consequences("active")
             panel_handler[reg["panel_type"]]()
@@ -243,14 +283,19 @@ def process_panel_reconfigurations():
 
 
 def process_panel_reconfiguration(request):
+    if request["day"] != g["selected_day"]:
+        return
+
     position_id = request["position_id"]
-    old_panel_id = position_panel[position_id]
+    configuration = ensure_day_state(request["day"])
+    old_panel_id = position_mounted_panel[position_id]
     new_panel_id = request["new_panel_id"]
     if old_panel_id == new_panel_id:
         return
 
     tear_down_panel_gui(position_id, old_panel_id)
-    position_panel[position_id] = new_panel_id
+    configuration["position_panel"][position_id] = new_panel_id
+    position_mounted_panel[position_id] = new_panel_id
     install_panel_gui(position_id)
 
     panel_event_queues[old_panel_id].clear()
@@ -309,14 +354,14 @@ def process_gui_consequences():
 
 
 def find_panel_position(panel_id):
-    for position_id, assigned_panel_id in position_panel.items():
+    for position_id, assigned_panel_id in position_mounted_panel.items():
         if assigned_panel_id == panel_id:
             return position_id
     return None
 
 
 def load_active_gui_registers(position_id):
-    panel_id = position_panel[position_id]
+    panel_id = position_mounted_panel[position_id]
     reg["position_id"] = position_id
     reg["position_widgets"] = position_widgets[position_id]
     reg["panel_id"] = panel_id
@@ -326,6 +371,10 @@ def load_active_gui_registers(position_id):
 
 
 def install_panel_gui(position_id):
+    if position_id not in position_mounted_panel:
+        position_mounted_panel[position_id] = current_day_configuration()[
+            "position_panel"
+        ][position_id]
     load_active_gui_registers(position_id)
     panel_builder[reg["panel_type"]]()
     refresh_panel_host_label()
