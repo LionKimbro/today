@@ -39,6 +39,7 @@ RENAME_TAB = "RENAME_TAB"
 DELETE_TAB = "DELETE_TAB"
 TOGGLE_TODO = "TOGGLE_TODO"
 EDIT_JOURNAL = "EDIT_JOURNAL"
+DAY_ORIENTATION = "DAY_ORIENTATION"
 
 
 g = {
@@ -48,7 +49,6 @@ g = {
     "processing_scheduled": False,
     "selected_day": date.today(),
     "heartbeat_count": 0,
-    "orientation_text": "orientation",
 }
 
 reg = {"event": None, "model": None, "panel_id": None}
@@ -63,7 +63,7 @@ COLORS = {
     "status_text": "#D7E2EC",
 }
 
-PANEL_TITLES = {TODO: "Todo", JOURNAL: "Journal", EMPTY: "Empty Panel"}
+PANEL_TITLES = {TODO: "Todo", JOURNAL: "Journal", EMPTY: "Empty Panel", DAY_ORIENTATION: "Orientation"}
 
 # The application world is visible and inspectable.
 day_models = {}
@@ -77,6 +77,7 @@ widgets = {
     "tabs": {},
     "positions": {},
     "panels": {},
+    "special_panels": {},
 }
 
 
@@ -84,7 +85,7 @@ widgets = {
 # Logical model
 
 
-def make_panel(day, panel_kind):
+def make_panel(day, panel_kind, text=None):
     """Create one semantic panel record with globally unique identity."""
     panel_id = f"panel-{uuid.uuid4().hex[:10]}"
     panels[panel_id] = {
@@ -94,7 +95,13 @@ def make_panel(day, panel_kind):
             "items": [{"text": f"Try the event route on {day.isoformat()}", "done": False}]
             if panel_kind == TODO
             else [],
-            "text": f"Write a thought for {day.isoformat()}." if panel_kind == JOURNAL else "",
+            "text": (
+                text
+                if text is not None
+                else f"Write a thought for {day.isoformat()}."
+                if panel_kind == JOURNAL
+                else ""
+            ),
         },
     }
     return panel_id
@@ -128,7 +135,10 @@ def make_day_model(day):
         "tabs": [tab_a, tab_b],
         "selected_tab_id": tab_a["tab_id"],
         "panel_at": {},
+        "special_panel_slots": {},
     }
+    orientation_panel_id = make_panel(day, DAY_ORIENTATION, f"Orientation for {day.strftime('%b')} {day.day}")
+    model["special_panel_slots"]["day_orientation"] = orientation_panel_id
     ensure_model_positions(model)
     return model
 
@@ -251,6 +261,10 @@ def reduce_model(model, event):
         row_number = event["row_number"]
         if tab and 1 <= row_number <= len(tab["rows"]):
             tab["rows"][row_number - 1]["height"] = max(80, int(event["height"]))
+    elif event_type == EDIT_ORIENTATION:
+        panel_id = next_model["special_panel_slots"]["day_orientation"]
+        panels[panel_id]["state"]["text"] = event["text"]
+        effects.append("PROJECT_DAY_ORIENTATION")
     elif event_type == DELETE_ROW:
         tab = find_tab(next_model, event["tab_id"])
         row_number = event["row_number"]
@@ -307,6 +321,7 @@ def process_events():
     """Reduce queued events, then reconcile the active logical model."""
     g["processing_scheduled"] = False
     reconcile = False
+    project_orientation = False
     while event_queue:
         event = event_queue.popleft()
         event_type = event["type"]
@@ -319,19 +334,20 @@ def process_events():
                 g["selected_day"] = date.today()
             ensure_day_model(g["selected_day"])
             reconcile = True
+            project_orientation = True
         elif event_type == SECOND_ELAPSED:
             g["heartbeat_count"] += 1
-        elif event_type == EDIT_ORIENTATION:
-            g["orientation_text"] = event["text"]
         elif event_type in (TOGGLE_TODO, EDIT_JOURNAL):
             reduce_panel_event(event["panel_id"], event)
             reconcile = True
         else:
+            if event_type == EDIT_ORIENTATION:
+                project_orientation = True
             old_model = current_model()
             new_model, effects = reduce_model(old_model, event)
             day_models[g["selected_day"]] = new_model
             reconcile = reconcile or "RECONCILE_WORKSPACE" in effects
-    project_top_area()
+    project_top_area(project_orientation)
     if reconcile:
         reconcile_workspace(current_model())
     if event_queue:
@@ -541,13 +557,16 @@ def project_panel(panel_id):
         panel_widgets["text_var"].set(panel["state"]["text"])
 
 
-def project_top_area():
-    """Project global top-area state when the top widgets exist."""
+def project_top_area(project_orientation=False):
+    """Project hard-coded header state and optionally the orientation panel."""
     if not widgets["top"]:
         return
     widgets["top"]["date_label"].configure(text=g["selected_day"].isoformat())
     widgets["top"]["heartbeat_label"].configure(text=f"heartbeat {g['heartbeat_count']}")
-    widgets["top"]["orientation_var"].set(g["orientation_text"])
+    if project_orientation and "day_orientation" in widgets["special_panels"]:
+        panel_id = current_model()["special_panel_slots"]["day_orientation"]
+        widgets["special_panels"]["day_orientation"]["panel_id"] = panel_id
+        widgets["special_panels"]["day_orientation"]["text_var"].set(panels[panel_id]["state"]["text"])
 
 
 # ---------------------------------------------------------------------------
@@ -646,6 +665,19 @@ def open_tab_editor(tab_id):
     dialog.wait_window()
 
 
+def build_day_orientation_panel(parent, model):
+    """Realize the date-owned orientation panel in its special header slot."""
+    panel_id = model["special_panel_slots"]["day_orientation"]
+    host = ttk.Frame(parent)
+    host.pack(side="left", fill="x", expand=True, padx=12)
+    ttk.Label(host, text="Orientation:").pack(side="left")
+    text_var = tk.StringVar(value=panels[panel_id]["state"]["text"])
+    orientation = ttk.Entry(host, textvariable=text_var, width=32)
+    orientation.pack(side="left", fill="x", expand=True, padx=(6, 0))
+    orientation.bind("<Return>", handle_when_orientation_text_is_submitted)
+    widgets["special_panels"]["day_orientation"] = {"panel_id": panel_id, "text_var": text_var, "host": host}
+
+
 def build_top_area(parent):
     """Build the global top area."""
     area = tk.Frame(parent, background=COLORS["top"], padx=12, pady=10)
@@ -655,13 +687,10 @@ def build_top_area(parent):
     date_label.pack(side="left", padx=6)
     ttk.Button(area, text="今", command=handle_when_today_button_is_clicked).pack(side="left")
     ttk.Button(area, text=">", command=handle_when_next_day_button_is_clicked).pack(side="left")
-    orientation_var = tk.StringVar(value=g["orientation_text"])
-    orientation = ttk.Entry(area, textvariable=orientation_var, width=28)
-    orientation.pack(side="left", padx=12)
-    orientation.bind("<Return>", handle_when_orientation_text_is_submitted)
+    build_day_orientation_panel(area, current_model())
     heartbeat_label = ttk.Label(area, text="heartbeat 0")
     heartbeat_label.pack(side="right")
-    widgets["top"].update({"date_label": date_label, "orientation_var": orientation_var, "heartbeat_label": heartbeat_label})
+    widgets["top"].update({"date_label": date_label, "heartbeat_label": heartbeat_label})
 
 
 def build_window():
