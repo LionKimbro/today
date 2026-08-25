@@ -1,6 +1,7 @@
 ```
 date: 2026-08-24
 title: Part I -- the GUI Interaction Model
+chatgpt: https://chatgpt.com/c/6a8c06a2-bc00-83e8-a6ad-2ff7cf294921
 ```
 
 # Today GUI Interaction Model — Context Handoff

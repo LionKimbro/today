@@ -28,13 +28,17 @@ g = {
     "selected_day": date.today(),
     "processing_scheduled": False,
     "shut-up": False,
-    "processing_event": None,
-    "active_panel_id": None,
-    "active_panel_widgets": None,
-    "active_panel_state": None,
-    "active_panel_type": None,
     "heartbeat_count": 0,
     "orientation_text": "orientation",
+}
+
+reg = {
+    "event": None,
+    "panel_id": None,
+    "panel_widgets": None,
+    "panel_state": None,
+    "panel_type": None,
+    "target_consequences": None,
 }
 
 global_event_queue = deque()
@@ -81,9 +85,28 @@ def queue_panel_event(panel_id, event_type, **data):
     request_idle_processing()
 
 
-def queue_gui_consequence(target, consequence_type, **data):
+def target_consequences(target):
+    """Load the consequence destination into the current queue register."""
+    if target == "global":
+        reg["target_consequences"] = "global"
+    elif target == "active":
+        reg["target_consequences"] = reg["panel_id"]
+    else:
+        raise ValueError(f"unknown consequence queue target: {target}")
+
+
+def queue_consequence(consequence_type, data):
+    """Append a consequence using the already-selected queue target."""
+    if reg["target_consequences"] is None:
+        raise RuntimeError(
+            "target_consequences() must be called before queue_consequence()"
+        )
     gui_consequence_queue.append(
-        {"target": target, "type": consequence_type, **data}
+        {
+            "target": reg["target_consequences"],
+            "type": consequence_type,
+            "data": data,
+        }
     )
 
 
@@ -135,28 +158,29 @@ def process_pending_work():
 
 def process_global_events():
     while global_event_queue:
-        g["processing_event"] = global_event_queue.popleft()
+        reg["event"] = global_event_queue.popleft()
         process_current_global_event()
-    g["processing_event"] = None
+    reg["event"] = None
 
 
 def process_current_global_event():
-    event_type = g["processing_event"]["type"]
+    event_type = reg["event"]["type"]
+    target_consequences("global")
     if event_type == SELECT_PREVIOUS_DAY:
         g["selected_day"] -= timedelta(days=1)
-        queue_gui_consequence("global", "refresh_top_area")
+        queue_consequence("refresh_top_area", {})
     elif event_type == SELECT_NEXT_DAY:
         g["selected_day"] += timedelta(days=1)
-        queue_gui_consequence("global", "refresh_top_area")
+        queue_consequence("refresh_top_area", {})
     elif event_type == SELECT_TODAY:
         g["selected_day"] = date.today()
-        queue_gui_consequence("global", "refresh_top_area")
+        queue_consequence("refresh_top_area", {})
     elif event_type == SECOND_ELAPSED:
         g["heartbeat_count"] += 1
-        queue_gui_consequence("global", "refresh_heartbeat")
+        queue_consequence("refresh_heartbeat", {})
     elif event_type == EDIT_ORIENTATION:
-        g["orientation_text"] = g["processing_event"]["text"]
-        queue_gui_consequence("global", "refresh_orientation")
+        g["orientation_text"] = reg["event"]["text"]
+        queue_consequence("refresh_orientation", {})
 
 
 def process_panel_events():
@@ -164,37 +188,38 @@ def process_panel_events():
         while panel_event_queues[panel_id]:
             event = panel_event_queues[panel_id].popleft()
             load_active_panel_registers(event)
-            panel_handler[g["active_panel_type"]]()
+            target_consequences("active")
+            panel_handler[reg["panel_type"]]()
     clear_active_panel_registers()
 
 
 def load_active_panel_registers(event):
-    g["processing_event"] = event
-    g["active_panel_id"] = event["panel_id"]
-    g["active_panel_widgets"] = panel_widgets[g["active_panel_id"]]
-    g["active_panel_state"] = panel_state[g["active_panel_id"]]
-    g["active_panel_type"] = panel_type[g["active_panel_id"]]
+    reg["event"] = event
+    reg["panel_id"] = event["panel_id"]
+    reg["panel_widgets"] = panel_widgets[reg["panel_id"]]
+    reg["panel_state"] = panel_state[reg["panel_id"]]
+    reg["panel_type"] = panel_type[reg["panel_id"]]
 
 
 def clear_active_panel_registers():
-    g["processing_event"] = None
-    g["active_panel_id"] = None
-    g["active_panel_widgets"] = None
-    g["active_panel_state"] = None
-    g["active_panel_type"] = None
+    reg["event"] = None
+    reg["panel_id"] = None
+    reg["panel_widgets"] = None
+    reg["panel_state"] = None
+    reg["panel_type"] = None
 
 
 def handle_todo_panel_event():
-    state = g["active_panel_state"]
-    if g["processing_event"]["type"] == TOGGLE_TODO:
+    state = reg["panel_state"]
+    if reg["event"]["type"] == TOGGLE_TODO:
         state["items"][0]["done"] = not state["items"][0]["done"]
-        queue_gui_consequence(g["active_panel_id"], "refresh_panel")
+        queue_consequence("refresh_panel", {})
 
 
 def handle_journal_panel_event():
-    if g["processing_event"]["type"] == EDIT_JOURNAL:
-        g["active_panel_state"]["text"] = g["processing_event"]["text"]
-        queue_gui_consequence(g["active_panel_id"], "refresh_panel")
+    if reg["event"]["type"] == EDIT_JOURNAL:
+        reg["panel_state"]["text"] = reg["event"]["text"]
+        queue_consequence("refresh_panel", {})
 
 
 panel_handler = {
@@ -210,15 +235,15 @@ def process_gui_consequences():
             update_global_gui(consequence)
         else:
             load_active_gui_registers(consequence["target"])
-            panel_gui_handler[g["active_panel_type"]]()
+            panel_gui_handler[reg["panel_type"]]()
     clear_active_panel_registers()
 
 
 def load_active_gui_registers(panel_id):
-    g["active_panel_id"] = panel_id
-    g["active_panel_widgets"] = panel_widgets[panel_id]
-    g["active_panel_state"] = panel_state[panel_id]
-    g["active_panel_type"] = panel_type[panel_id]
+    reg["panel_id"] = panel_id
+    reg["panel_widgets"] = panel_widgets[panel_id]
+    reg["panel_state"] = panel_state[panel_id]
+    reg["panel_type"] = panel_type[panel_id]
 
 
 def update_global_gui(consequence):
@@ -239,8 +264,8 @@ def update_global_gui(consequence):
 def update_todo_panel_gui():
     g["shut-up"] = True
     try:
-        state = g["active_panel_state"]
-        widgets = g["active_panel_widgets"]
+        state = reg["panel_state"]
+        widgets = reg["panel_widgets"]
         item = state["items"][0]
         widgets["status_label"].configure(
             text=("done" if item["done"] else "open") + ": " + item["text"]
@@ -252,7 +277,7 @@ def update_todo_panel_gui():
 def update_journal_panel_gui():
     g["shut-up"] = True
     try:
-        g["active_panel_widgets"]["text_var"].set(g["active_panel_state"]["text"])
+        reg["panel_widgets"]["text_var"].set(reg["panel_state"]["text"])
     finally:
         g["shut-up"] = False
 
@@ -269,6 +294,7 @@ def build_top_area(parent):
     ttk.Button(area, text="<", command=handle_when_previous_day_button_is_clicked).pack(side="left")
     top_widgets["date_label"] = ttk.Label(area, width=12, anchor="center")
     top_widgets["date_label"].pack(side="left", padx=6)
+    top_widgets["date_label"].configure(text=g["selected_day"].isoformat())
     ttk.Button(area, text= "今", command=handle_when_today_button_is_clicked).pack(side="left")
     ttk.Button(area, text=">", command=handle_when_next_day_button_is_clicked).pack(side="left")
     top_widgets["orientation_var"] = tk.StringVar(value=g["orientation_text"])
@@ -277,7 +303,6 @@ def build_top_area(parent):
     orientation.bind("<Return>", handle_when_orientation_text_is_submitted)
     top_widgets["heartbeat_label"] = ttk.Label(area, text="heartbeat 0")
     top_widgets["heartbeat_label"].pack(side="right")
-    queue_global_event(SELECT_TODAY)
 
 
 def build_todo_panel(parent, panel_id):
@@ -285,12 +310,15 @@ def build_todo_panel(parent, panel_id):
     frame.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=8)
     panel_widgets[panel_id]["status_label"] = ttk.Label(frame)
     panel_widgets[panel_id]["status_label"].pack(anchor="w", pady=(0, 8))
+    item = panel_state[panel_id]["items"][0]
+    panel_widgets[panel_id]["status_label"].configure(
+        text=("done" if item["done"] else "open") + ": " + item["text"]
+    )
     ttk.Button(
         frame,
         text="Toggle first item",
         command=lambda: handle_when_todo_toggle_button_is_clicked(panel_id),
     ).pack(anchor="w")
-    queue_panel_event(panel_id, TOGGLE_TODO)
 
 
 def build_journal_panel(parent, panel_id):
