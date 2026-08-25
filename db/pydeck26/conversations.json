@@ -21,15 +21,15 @@
       "date": "2026-08-24",
       "title": "Dividing into 3 Parts",
       "url": "https://chatgpt.com/c/6a8bfb7a-c3bc-83e8-8807-b5afb5aef4b8",
-      "hook": "1. GUI interaction 2. Multi-threading 3. Fair Play",
-      "description": ""
+      "hook": "Core composition HQ.",
+      "description": "Part 0: The panels model we started with. (01_panels-model.py)\nPart 1: The GUI interaction system we created. (02_interaction-model.py)\nPart 2: Multi-threading\nPart 3: Fair Play"
     },
     {
       "id": "48313678-2210-4eba-ae39-1847ae55a12f",
       "date": "2026-08-24",
       "title": "Part I.  GUI Interaction Model",
       "url": "https://chatgpt.com/c/6a8c06a2-bc00-83e8-a6ad-2ff7cf294921",
-      "hook": "<<< CURRENT WORK >>>",
+      "hook": "Deliverying events to uniquely identified panels.",
       "description": "We're getting the GUI panels reconfigurable, and we're getting events to the panels by their ID."
     },
     {

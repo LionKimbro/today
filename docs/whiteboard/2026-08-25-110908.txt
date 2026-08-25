@@ -1,0 +1,7 @@
+2026-08-25 -- I'm done with Parts 0 and 1 now, next up is part 2 or 3; visit https://chatgpt.com/c/6a8bfb7a-c3bc-83e8-8807-b5afb5aef4b8 to report progress and choose next steps.
+2026-08-24
+* We're working on getting all 3 (+ original 1) parts together; the "Dividing into 3 Parts" conversation explains what those parts are.
+* I've just finished Part 1's first render, but -- it should be examined, worked with, understood.
+  - the basic global data structures look right to me
+  - I think I'd like to examine how callback events are set up, make sure it's to my liking
+  - the big concern, and something we should probably model, is how the panels are set up, and most specifically, how event callbacks are attached to them, and DESTROYED from them

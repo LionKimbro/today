@@ -1,5 +1,5 @@
 {
-  "purpose": "We're making a \"spike solution\" prototype chassis for the \"today\" app.  We're not implementing the actual app -- we're just experimenting to see if we can make the right \"GUI chassis\" that the parts of the today app will live in.  (Things like: to-do lists, journaling sites, metrics, whiteboards, various other things.)",
+  "purpose": "We're now combining 01_panels-model.py and 02_interaction-model.py to make 03_combined-model.py, per docs/raw/0170__combining.md.",
   "options": {
     "encourage-questions": true,
     "request-ack": true

@@ -1,7 +1,5 @@
-2026-08-25 -- I'm immediately working in: https://chatgpt.com/c/6a8c06a2-bc00-83e8-a6ad-2ff7cf294921
-2026-08-24
-* We're working on getting all 3 (+ original 1) parts together; the "Dividing into 3 Parts" conversation explains what those parts are.
-* I've just finished Part 1's first render, but -- it should be examined, worked with, understood.
-  - the basic global data structures look right to me
-  - I think I'd like to examine how callback events are set up, make sure it's to my liking
-  - the big concern, and something we should probably model, is how the panels are set up, and most specifically, how event callbacks are attached to them, and DESTROYED from them
+2026-08-25
+  Part 0: Panels Model     [DONE]  <--  RIGHT NOW, 
+  Part 1: GUI interaction   [DONE]  <--    per "Dividing into 3 Parts," we are now working on combining these into one thing.  (03_combined-01-02.py).
+  Part 2: Multi-threading   [ ]  <-- this will come NEXT.
+  Part 3: Fair Play            [ ]  <-- this will come LAST.
