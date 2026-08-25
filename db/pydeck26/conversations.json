@@ -28,9 +28,9 @@
       "id": "48313678-2210-4eba-ae39-1847ae55a12f",
       "date": "2026-08-24",
       "title": "Part I.  GUI Interaction Model",
-      "url": "",
-      "hook": "",
-      "description": ""
+      "url": "https://chatgpt.com/c/6a8c06a2-bc00-83e8-a6ad-2ff7cf294921",
+      "hook": "<<< CURRENT WORK >>>",
+      "description": "We're getting the GUI panels reconfigurable, and we're getting events to the panels by their ID."
     },
     {
       "id": "ef81e93a-dbe8-4ad4-bde2-e597e1c6b594",
