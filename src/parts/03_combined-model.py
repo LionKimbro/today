@@ -35,6 +35,8 @@ REPLACE_PANEL = "REPLACE_PANEL"
 ADD_ROW = "ADD_ROW"
 DELETE_ROW = "DELETE_ROW"
 ADD_TAB = "ADD_TAB"
+RENAME_TAB = "RENAME_TAB"
+DELETE_TAB = "DELETE_TAB"
 TOGGLE_TODO = "TOGGLE_TODO"
 EDIT_JOURNAL = "EDIT_JOURNAL"
 
@@ -220,6 +222,23 @@ def reduce_model(model, event):
         next_model["selected_tab_id"] = tab["tab_id"]
         ensure_model_positions(next_model)
         effects.append("RECONCILE_WORKSPACE")
+    elif event_type == RENAME_TAB:
+        tab = find_tab(next_model, event["tab_id"])
+        title = event["title"].strip()
+        if tab and title:
+            tab["title"] = title
+            effects.append("RECONCILE_WORKSPACE")
+    elif event_type == DELETE_TAB:
+        if len(next_model["tabs"]) > 1:
+            deleted_tab_id = event["tab_id"]
+            deleted_index = next((index for index, tab in enumerate(next_model["tabs"]) if tab["tab_id"] == deleted_tab_id), None)
+            if deleted_index is not None:
+                next_model["tabs"].pop(deleted_index)
+                if next_model["selected_tab_id"] == deleted_tab_id:
+                    replacement_index = min(deleted_index, len(next_model["tabs"]) - 1)
+                    next_model["selected_tab_id"] = next_model["tabs"][replacement_index]["tab_id"]
+                ensure_model_positions(next_model)
+                effects.append("RECONCILE_WORKSPACE")
     elif event_type == SET_SASH_PROPORTIONS:
         tab = find_tab(next_model, event["tab_id"])
         row_number = event["row_number"]
@@ -575,6 +594,58 @@ def handle_when_notebook_tab_is_changed(_event):
             return
 
 
+def handle_when_notebook_is_double_clicked(event):
+    """Open the editor for a real tab, never for the trailing plus tab."""
+    notebook = widgets["notebook"]
+    if notebook.identify(event.x, event.y) != "label":
+        return
+    try:
+        tab_index = notebook.index(f"@{event.x},{event.y}")
+    except tk.TclError:
+        return
+    model = current_model()
+    if tab_index < len(model["tabs"]):
+        open_tab_editor(model["tabs"][tab_index]["tab_id"])
+        return "break"
+
+
+def open_tab_editor(tab_id):
+    """Show rename and delete commands for one logical tab."""
+    tab = find_tab(current_model(), tab_id)
+    if tab is None:
+        return
+    dialog = tk.Toplevel(widgets["notebook"])
+    dialog.title("Edit Tab")
+    dialog.transient(g["window"])
+    dialog.resizable(False, False)
+    ttk.Label(dialog, text="Tab Name:").grid(row=0, column=0, columnspan=3, sticky="w", padx=10, pady=(10, 3))
+    title = tk.StringVar(value=tab["title"])
+    entry = ttk.Entry(dialog, textvariable=title, width=30)
+    entry.grid(row=1, column=0, columnspan=3, sticky="ew", padx=10, pady=(0, 10))
+    entry.focus_set()
+    entry.selection_range(0, "end")
+
+    def handle_when_tab_rename_is_confirmed():
+        if title.get().strip():
+            post_event({"type": RENAME_TAB, "tab_id": tab_id, "title": title.get()})
+            dialog.destroy()
+
+    def handle_when_tab_delete_is_confirmed():
+        post_event({"type": DELETE_TAB, "tab_id": tab_id})
+        dialog.destroy()
+
+    ttk.Button(dialog, text="Rename", command=handle_when_tab_rename_is_confirmed).grid(row=2, column=0, padx=(10, 3), pady=(0, 10))
+    delete_button = ttk.Button(dialog, text="Delete", command=handle_when_tab_delete_is_confirmed)
+    delete_button.grid(row=2, column=1, padx=3, pady=(0, 10))
+    if len(current_model()["tabs"]) <= 1:
+        delete_button.state(["disabled"])
+    ttk.Button(dialog, text="Cancel", command=dialog.destroy).grid(row=2, column=2, padx=(3, 10), pady=(0, 10))
+    dialog.bind("<Return>", lambda _event: handle_when_tab_rename_is_confirmed())
+    dialog.bind("<Escape>", lambda _event: dialog.destroy())
+    dialog.grab_set()
+    dialog.wait_window()
+
+
 def build_top_area(parent):
     """Build the global top area."""
     area = tk.Frame(parent, background=COLORS["top"], padx=12, pady=10)
@@ -612,6 +683,7 @@ def build_window():
     notebook.pack(fill="both", expand=True)
     widgets["notebook"] = notebook
     notebook.bind("<<NotebookTabChanged>>", handle_when_notebook_tab_is_changed)
+    notebook.bind("<Double-1>", handle_when_notebook_is_double_clicked, add="+")
     reconcile_workspace(current_model())
     status = tk.Label(window, text="Ready.", anchor="w", background=COLORS["status"], foreground=COLORS["status_text"], padx=7, pady=3)
     status.pack(fill="x", side="bottom")
