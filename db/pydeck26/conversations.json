@@ -22,7 +22,7 @@
       "title": "Dividing into 3 Parts",
       "url": "https://chatgpt.com/c/6a8bfb7a-c3bc-83e8-8807-b5afb5aef4b8",
       "hook": "Core composition HQ.",
-      "description": "Part 0: The panels model we started with. (01_panels-model.py)\nPart 1: The GUI interaction system we created. (02_interaction-model.py)\nPart 2: Multi-threading\nPart 3: Fair Play"
+      "description": "Started with: 1. Panels 2. Interaction Model, 3. Multi-threading, 4. Fair Play.\nBut discovered Aug 25th, that 3&4 need to become a different model for memory and disk access, and Fair Play is being dropped."
     },
     {
       "id": "48313678-2210-4eba-ae39-1847ae55a12f",
@@ -39,6 +39,14 @@
       "url": "https://chatgpt.com/c/6a8c0895-2bec-83e8-8740-f7c340856c30",
       "hook": "It's not.",
       "description": "Also, panel IDs should be separate from panel positions."
+    },
+    {
+      "id": "ace75426-aece-4f66-8e3c-d3c5efcd620c",
+      "date": "2026-08-25",
+      "title": "Discussing Threads and Memory in Python",
+      "url": "https://chatgpt.com/c/6a8e05da-2b28-83e8-96fc-384258b516b1",
+      "hook": "checking assumptions",
+      "description": "* Python will switch between threads not only for disk access, but also between ordinary operations.\n* Having a dedicated disk read/write I/O thread is a good way to preserve smooth operation in a Python program."
     }
   ]
 }

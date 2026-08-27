@@ -1,5 +1,5 @@
 {
-  "purpose": "We're now combining 01_panels-model.py and 02_interaction-model.py to make 03_combined-model.py, per docs/raw/0170__combining.md.",
+  "purpose": "We're now creating a spike for the mobile stack concept outlined in:\n  docs\\raw\\0190__context-handoff-machine-concept.md",
   "options": {
     "encourage-questions": true,
     "request-ack": true
@@ -86,7 +86,7 @@
       "reason": "Read this when the application needs to resolve named machine-local resources through Machine Root."
     },
     "tkinter-conventions": {
-      "selected": true,
+      "selected": false,
       "designation": "required",
       "reason": "When you write tkinter user interfaces, follow these guidelines."
     },

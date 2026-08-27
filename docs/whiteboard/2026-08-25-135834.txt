@@ -1,0 +1,6 @@
+2026-08-25
+  Part 0: Panels Model     [DONE]
+  Part 1: GUI interaction   [DONE]
+    -- integrated in: 03_combined-01-02.py  -- 2026-08-25 1:58p
+  Part 2: Multi-threading   [ ]  <-- this will come NEXT.
+  Part 3: Fair Play            [ ]  <-- this will come LAST.

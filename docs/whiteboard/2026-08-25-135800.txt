@@ -1,0 +1,5 @@
+2026-08-25
+  Part 0: Panels Model     [DONE]  <--  RIGHT NOW, 
+  Part 1: GUI interaction   [DONE]  <--    per "Dividing into 3 Parts," we are now working on combining these into one thing.  (03_combined-01-02.py).
+  Part 2: Multi-threading   [ ]  <-- this will come NEXT.
+  Part 3: Fair Play            [ ]  <-- this will come LAST.
