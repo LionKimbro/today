@@ -1,4 +1,20 @@
-"""Standalone proof of concept for a stack that moves among tk, mem, and disk.
+"""Standalone proof of concept for stacks, machines, and physical threads.
+
+This is a deliberately small architectural spike, not a reusable framework.
+Its central separation is:
+
+    stack      = the continuation of one logical computation
+    machine    = the semantic owner of an operation and its runnable stacks
+    thread     = the physical execution context for one or more machines
+
+Every stack transfer follows one visible path:
+
+    source machine -> target thread inbound queue -> target machine run queue
+
+The target machine is currently on a same-named thread (``mem`` on ``mem``),
+but the thread registry permits a future thread to host several machines.
+Each thread's ``current-machine`` register says which assigned machine it is
+running at this instant; it is cleared between reconciliation quanta.
 
 Run normally to watch the Tk trace window and the console trace:
 
@@ -10,7 +26,7 @@ logical scheduler but manually invokes the Tk pump instead of entering Tk.
 
 from collections import deque
 from queue import Empty, Queue
-from threading import Lock, Thread
+from threading import Lock, Thread, current_thread
 import sys
 import time
 import tkinter as tk
@@ -23,21 +39,49 @@ STARTUP = "STARTUP"
 STOP = "STOP"
 
 
+# Central program facts, not a general storage bucket:
+# {"root": <Tk root or None>, "headless": <bool>, "active-demo-count": <int>, ...}
 g = {
     "root": None,
     "headless": False,
     "shutting-down": False,
-    "demo-count": 0,
+    "active-demo-count": 0,
     "completed-demo-count": 0,
+    "next-stack-number": 1,
     "tk-pump-scheduled": False,
 }
 
+# Physical execution contexts. A thread may host more than one machine:
+# {"<thread-name>": {"in-queue": Queue(<delivery packets>),
+#                     "machine-names": ["<machine-name>", ...],
+#                     "current-machine": "<machine-name>" | None,
+#                     "next-machine-index": <round-robin position>,
+#                     "thread-type": "system" | "worker",
+#                     "entry-fn": <thread procedure>,
+#                     "thread-obj": <Thread for workers, None for tk>,
+#                     "stop-requested": <bool>}}
+# For a worker, "thread-obj" is its live threading.Thread; for the tk system
+# thread it is None because the program's main thread already exists.
+threads = {}
+
+# Semantic execution machines. A machine owns runnable stacks, but its
+# physical thread admits inbound delivery packets into that local run queue:
+# {"<machine-name>": {"thread": "<owning-thread-name>",
+#                       "run-queue": deque(<runnable stacks>),
+#                       "handler": <primitive operation handler>}}
 machines = {}
+
+# Tk widgets by readable role. Only tk-machine procedures may mutate this:
+# {"status": <ttk.Label>, "trace": <tk.Text>, ...}
+widgets = {}
+
+# Panel identity remains separate from panel type:
+# {"<panel-id>": {"type": "<panel-type>"}}
 panels = {
     "panel-demo": {"type": "trace-panel"},
 }
+# {"<panel-type>": <panel operation handler>}
 panel_handlers = {}
-threads = {}
 trace_lock = Lock()
 
 
@@ -72,7 +116,6 @@ def log(machine_name, stack, action):
     )
     trace(line)
     if machine_name == "tk" and g["root"] is not None:
-        widgets = machines["tk"].get("widgets", {})
         widget = widgets.get("trace")
         if widget is not None:
             widget.insert("end", line + "\n")
@@ -80,6 +123,7 @@ def log(machine_name, stack, action):
 
 
 def make_frame(machine_name, operation, data=None):
+    # {"machine": "<target machine>", "op": "<operation>", ...}
     frame = {"machine": machine_name, "op": operation}
     if data:
         frame.update(data)
@@ -87,6 +131,9 @@ def make_frame(machine_name, operation, data=None):
 
 
 def make_serial(machine_name, name, steps):
+    # {"machine": "<target>", "op": "SERIAL", "name": "<label>",
+    #  "steps": [<child frames>], "ip": <next child index>,
+    #  "child-result": <most recently returned child result>}
     return {
         "machine": machine_name,
         "op": SERIAL,
@@ -98,6 +145,8 @@ def make_serial(machine_name, name, steps):
 
 
 def make_stack(stack_id, frame, kind):
+    # {"id": "<readable id>", "frames": [<bottom frame>, ..., <top frame>],
+    #  "kind": "startup" | "demo"}
     return {"id": stack_id, "frames": [frame], "kind": kind}
 
 
@@ -115,26 +164,51 @@ def pop(stack, machine_name, result):
     return frame
 
 
+def make_delivery(target_machine, stack):
+    # {"machine": "<target machine>", "stack": <the complete continuation>}
+    return {"machine": target_machine, "stack": stack}
+
+
+def send_stack_to_machine(stack, target_machine, source_machine):
+    """Relinquish a stack to the target machine's physical thread."""
+    target_thread = machines[target_machine]["thread"]
+    log(
+        source_machine,
+        stack,
+        f"TRANSFER -> machine={target_machine} via thread={target_thread}",
+    )
+    threads[target_thread]["in-queue"].put(make_delivery(target_machine, stack))
+
+
 def transfer(stack, current_machine, target_machine):
-    log(current_machine, stack, f"TRANSFER ownership -> {target_machine}")
-    machines[target_machine]["in-queue"].put(stack)
+    send_stack_to_machine(stack, target_machine, current_machine)
 
 
-def admit_inbound(machine_name):
-    machine = machines[machine_name]
+def admit_delivery_to_machine(thread_name, delivery):
+    """Place one received continuation onto its target machine's run queue."""
+    machine_name = delivery["machine"]
+    stack = delivery["stack"]
+    if machines[machine_name]["thread"] != thread_name:
+        raise RuntimeError(f"thread {thread_name} received work for foreign machine {machine_name}")
+    machines[machine_name]["run-queue"].append(stack)
+    log(machine_name, stack, f"THREAD {thread_name} RECEIVE -> machine run-queue")
+
+
+def admit_thread_inbound(thread_name):
+    """Drain a physical thread's queue into the run queues of its machines."""
+    thread_state = threads[thread_name]
     admitted = 0
     while True:
         try:
-            stack = machine["in-queue"].get_nowait()
+            delivery = thread_state["in-queue"].get_nowait()
         except Empty:
             break
-        if stack == STOP:
-            machine["stop-requested"] = True
-            log(machine_name, make_stack("system", make_frame(machine_name, STOP), "system"), "STOP received")
+        if delivery == STOP:
+            thread_state["stop-requested"] = True
+            trace(f"[{thread_name:4}] thread received STOP")
             continue
-        machine["run-queue"].append(stack)
+        admit_delivery_to_machine(thread_name, delivery)
         admitted += 1
-        log(machine_name, stack, "ADMIT inbound -> local run-queue")
     return admitted
 
 
@@ -161,11 +235,10 @@ def yield_stack(stack, machine_name):
 def complete_stack(stack, machine_name):
     log(machine_name, stack, "COMPLETE stack")
     if stack["kind"] == "demo":
+        g["active-demo-count"] -= 1
         g["completed-demo-count"] += 1
-        if g["completed-demo-count"] == g["demo-count"]:
-            log(machine_name, stack, "ALL demo stacks completed")
-            if g["root"] is not None:
-                g["root"].after(500, request_shutdown)
+        log(machine_name, stack, "DEMO result returned to Tk; machine is ready")
+        refresh_demo_status()
 
 
 def reconcile_stack(stack, machine_name):
@@ -194,6 +267,8 @@ def reconcile_stack(stack, machine_name):
 
 
 def run_one_local_stack(machine_name):
+    if machines[machine_name]["thread"] != current_thread().name:
+        raise RuntimeError(f"foreign thread attempted to run machine {machine_name}")
     machine = machines[machine_name]
     if not machine["run-queue"]:
         return False
@@ -203,41 +278,74 @@ def run_one_local_stack(machine_name):
     return True
 
 
-def run_worker_machine(machine_name):
-    """Blocking worker loop: admit, run one quantum, then recheck inbound."""
-    trace(f"[{machine_name:4}] worker started; blocking inbound queue when idle")
+def run_one_machine_on_current_thread(thread_name):
+    """Choose one assigned machine fairly and mark it in the thread register."""
+    thread_state = threads[thread_name]
+    machine_names = thread_state["machine-names"]
+    for offset in range(len(machine_names)):
+        index = (thread_state["next-machine-index"] + offset) % len(machine_names)
+        machine_name = machine_names[index]
+        if not machines[machine_name]["run-queue"]:
+            continue
+        thread_state["next-machine-index"] = (index + 1) % len(machine_names)
+        thread_state["current-machine"] = machine_name
+        trace(f"[{thread_name:4}] register current-machine <- {machine_name}")
+        try:
+            return run_one_local_stack(machine_name)
+        finally:
+            thread_state["current-machine"] = None
+            trace(f"[{thread_name:4}] register current-machine <- None")
+    return False
+
+
+def receive_blocking_delivery_for_current_thread(thread_name):
+    """Block only when every machine on this worker thread is idle."""
+    delivery = threads[thread_name]["in-queue"].get()
+    if delivery == STOP:
+        threads[thread_name]["stop-requested"] = True
+        trace(f"[{thread_name:4}] thread received STOP while idle")
+        return
+    admit_delivery_to_machine(thread_name, delivery)
+
+
+def run_worker_thread():
+    """Blocking worker thread: admit packets, run one machine quantum, repeat."""
+    thread_name = current_thread().name
+    thread_state = threads[thread_name]
+    trace(
+        f"[{thread_name:4}] worker thread started for machines "
+        f"{thread_state['machine-names']}; blocking inbound queue when idle"
+    )
     while True:
-        admit_inbound(machine_name)
-        if run_one_local_stack(machine_name):
+        admit_thread_inbound(thread_name)
+        if run_one_machine_on_current_thread(thread_name):
             continue
-        if machines[machine_name]["stop-requested"]:
+        if thread_state["stop-requested"]:
             break
-        stack = machines[machine_name]["in-queue"].get()
-        if stack == STOP:
-            machines[machine_name]["stop-requested"] = True
-            continue
-        machines[machine_name]["run-queue"].append(stack)
-        log(machine_name, stack, "WAKE from blocking inbound queue")
-    trace(f"[{machine_name:4}] worker stopped")
+        receive_blocking_delivery_for_current_thread(thread_name)
+    trace(f"[{thread_name:4}] worker thread stopped")
 
 
-def pump_tk_machine():
-    """Tk callback version of the same scheduler: bounded and non-blocking."""
+def pump_tk_thread():
+    """Tk callback version of the same thread scheduler: bounded and non-blocking."""
+    thread_name = current_thread().name
     g["tk-pump-scheduled"] = False
-    admit_inbound("tk")
+    admit_thread_inbound(thread_name)
     for _ in range(3):
-        if not run_one_local_stack("tk"):
+        if not run_one_machine_on_current_thread(thread_name):
             break
-        admit_inbound("tk")
+        admit_thread_inbound(thread_name)
     if not g["shutting-down"] and g["root"] is not None:
         g["tk-pump-scheduled"] = True
-        g["root"].after(30, pump_tk_machine)
+        g["root"].after(30, pump_tk_thread)
 
 
 def schedule_tk_pump():
+    if g["root"] is None:
+        return
     if not g["tk-pump-scheduled"] and not g["shutting-down"]:
         g["tk-pump-scheduled"] = True
-        g["root"].after_idle(pump_tk_machine)
+        g["root"].after_idle(pump_tk_thread)
 
 
 def handler_tk(stack):
@@ -254,10 +362,12 @@ def handler_tk(stack):
 def handle_tk_system_operation(stack):
     frame = stack["frames"][-1]
     if frame["op"] == STARTUP:
+        if not g["headless"]:
+            build_tk_interface_after_startup()
         return "tk ready"
     if frame["op"] == "TK_SHOW_RESULT":
         result = stack["frames"][-2].get("child-result")
-        status = machines["tk"]["widgets"].get("status")
+        status = widgets.get("status")
         if status is not None:
             status.configure(text=f"{stack['id']} returned: {result}")
         return f"Tk displayed {result}"
@@ -307,96 +417,192 @@ def build_demo_stack(stack_id):
     return make_stack(stack_id, make_serial("tk", "TK_TO_MEM_TO_DISK_TO_TK", outer_steps), "demo")
 
 
-def initialize_machines():
+def post_demo_stack(label):
+    """Turn a Tk request into stack data; the scheduler performs it later."""
+    stack_id = f"{label}-{g['next-stack-number']}"
+    g["next-stack-number"] += 1
+    g["active-demo-count"] += 1
+    send_stack_to_machine(build_demo_stack(stack_id), "tk", "user")
+    trace(f"[user] stack={stack_id:7} posted independent workflow to tk")
+    refresh_demo_status()
+    schedule_tk_pump()
+
+
+def refresh_demo_status():
+    status = widgets.get("status")
+    if status is not None:
+        status.configure(
+            text=(
+                f"active stacks: {g['active-demo-count']}   "
+                f"completed: {g['completed-demo-count']}"
+            )
+        )
+
+
+def handle_when_alpha_button_is_clicked():
+    post_demo_stack("alpha")
+
+
+def handle_when_bravo_button_is_clicked():
+    post_demo_stack("bravo")
+
+
+def handle_when_fair_pair_button_is_clicked():
+    post_demo_stack("alpha")
+    post_demo_stack("bravo")
+
+
+def handle_when_clear_trace_button_is_clicked():
+    widgets["trace"].delete("1.0", "end")
+
+
+def initialize_threads_and_machines():
+    # The current spike intentionally maps one machine to each named thread.
+    # The lists make the future multi-machine-per-thread case explicit now.
+    threads["tk"] = {
+        "in-queue": Queue(),
+        "machine-names": ["tk"],
+        "current-machine": None,
+        "next-machine-index": 0,
+        "thread-type": "system",
+        "entry-fn": pump_tk_thread,
+        "stop-requested": False,
+        "thread-obj": None,
+    }
+    threads["mem"] = {
+        "in-queue": Queue(),
+        "machine-names": ["mem"],
+        "current-machine": None,
+        "next-machine-index": 0,
+        "thread-type": "worker",
+        "entry-fn": run_worker_thread,
+        "stop-requested": False,
+        "thread-obj": None,
+    }
+    threads["disk"] = {
+        "in-queue": Queue(),
+        "machine-names": ["disk"],
+        "current-machine": None,
+        "next-machine-index": 0,
+        "thread-type": "worker",
+        "entry-fn": run_worker_thread,
+        "stop-requested": False,
+        "thread-obj": None,
+    }
     machines["tk"] = {
-        "in-queue": Queue(), "run-queue": deque(), "handler": handler_tk,
-        "thread-type": "system", "entry-fn": pump_tk_machine,
-        "stop-requested": False, "widgets": {},
+        "thread": "tk",
+        "run-queue": deque(),
+        "handler": handler_tk,
     }
     machines["mem"] = {
-        "in-queue": Queue(), "run-queue": deque(), "handler": handler_mem,
-        "thread-type": "worker", "entry-fn": run_worker_machine,
-        "stop-requested": False,
+        "thread": "mem",
+        "run-queue": deque(),
+        "handler": handler_mem,
     }
     machines["disk"] = {
-        "in-queue": Queue(), "run-queue": deque(), "handler": handler_disk,
-        "thread-type": "worker", "entry-fn": run_worker_machine,
-        "stop-requested": False,
+        "thread": "disk",
+        "run-queue": deque(),
+        "handler": handler_disk,
     }
     panel_handlers["trace-panel"] = handle_trace_panel_operation
 
 
-def post_startup_and_demo_stacks():
+def post_startup_stacks():
     for machine_name in machines:
-        machines[machine_name]["in-queue"].put(
-            make_stack(f"boot-{machine_name}", make_frame(machine_name, STARTUP), "startup")
+        startup_stack = make_stack(
+            f"boot-{machine_name}", make_frame(machine_name, STARTUP), "startup"
         )
-    for stack_id in ("alpha", "bravo"):
-        g["demo-count"] += 1
-        machines["tk"]["in-queue"].put(build_demo_stack(stack_id))
+        send_stack_to_machine(startup_stack, machine_name, "startup")
+def create_tk_event_loop_shell():
+    """Create only the hidden main-thread event-loop shell before tk:STARTUP."""
+    g["root"] = tk.Tk()
+    g["root"].withdraw()
 
 
-def build_window():
-    root = tk.Tk()
+def build_tk_interface_after_startup():
+    """Construct and reveal the visible Tk interface for the tk:STARTUP frame."""
+    root = g["root"]
     root.title("Today — mobile stacks proof of concept")
     root.geometry("1100x600")
-    g["root"] = root
     frame = ttk.Frame(root, padding=10)
     frame.pack(fill="both", expand=True)
-    ttk.Label(frame, text="Two independent stacks: tk → mem → disk → mem → tk").pack(anchor="w")
-    machines["tk"]["widgets"]["status"] = ttk.Label(frame, text="Starting machines...")
-    machines["tk"]["widgets"]["status"].pack(anchor="w", pady=(4, 8))
+    ttk.Label(
+        frame,
+        text="Mobile stacks: post independent continuations and watch tk → mem → disk → mem → tk",
+    ).pack(anchor="w")
+    controls = ttk.Frame(frame)
+    controls.pack(anchor="w", pady=(8, 4))
+    ttk.Button(controls, text="Launch alpha", command=handle_when_alpha_button_is_clicked).pack(side="left")
+    ttk.Button(controls, text="Launch bravo", command=handle_when_bravo_button_is_clicked).pack(side="left", padx=4)
+    ttk.Button(
+        controls,
+        text="Launch fair pair (yield)",
+        command=handle_when_fair_pair_button_is_clicked,
+    ).pack(side="left", padx=4)
+    ttk.Button(controls, text="Clear trace", command=handle_when_clear_trace_button_is_clicked).pack(side="left", padx=4)
+    panel = ttk.LabelFrame(frame, text="panel-demo / trace-panel", padding=6)
+    panel.pack(fill="x", pady=(0, 8))
+    ttk.Label(panel, text="This panel-type handler acknowledges TK_START before the stack transfers to mem.").pack(side="left")
+    ttk.Button(panel, text="Launch from panel", command=handle_when_alpha_button_is_clicked).pack(side="right")
+    widgets["status"] = ttk.Label(frame, text="Starting machines...")
+    widgets["status"].pack(anchor="w", pady=(4, 8))
     trace_widget = tk.Text(frame, height=28, width=145, wrap="none")
     trace_widget.pack(fill="both", expand=True)
-    machines["tk"]["widgets"]["trace"] = trace_widget
+    widgets["trace"] = trace_widget
     root.protocol("WM_DELETE_WINDOW", request_shutdown)
-    return root
+    root.deiconify()
+    trace("[tk  ] tk:STARTUP built and revealed the Tk interface")
 
 
 def request_shutdown():
     if g["shutting-down"]:
         return
     g["shutting-down"] = True
-    trace("[main] shutdown: sending STOP to worker inbound queues")
-    machines["mem"]["in-queue"].put(STOP)
-    machines["disk"]["in-queue"].put(STOP)
+    trace("[main] shutdown: sending STOP to worker thread inbound queues")
+    threads["mem"]["in-queue"].put(STOP)
+    threads["disk"]["in-queue"].put(STOP)
     if g["root"] is not None:
         g["root"].after(50, g["root"].destroy)
 
 
 def start_workers():
-    for machine_name in ("mem", "disk"):
-        thread = Thread(target=run_worker_machine, args=(machine_name,), name=f"{machine_name}-worker")
-        threads[machine_name] = thread
+    for thread_name in ("mem", "disk"):
+        thread = Thread(target=threads[thread_name]["entry-fn"], name=thread_name)
+        threads[thread_name]["thread-obj"] = thread
         thread.start()
 
 
 def run_headless_tk_pump_until_completion():
     """Verification-only substitute for Tk callbacks when no display exists."""
     while not g["shutting-down"]:
-        admit_inbound("tk")
+        thread_name = current_thread().name
+        admit_thread_inbound(thread_name)
         for _ in range(3):
-            if not run_one_local_stack("tk"):
+            if not run_one_machine_on_current_thread(thread_name):
                 break
-        if g["completed-demo-count"] == g["demo-count"]:
+        if g["completed-demo-count"] == 2:
             request_shutdown()
         time.sleep(0.01)
 
 
 def main():
     g["headless"] = "--headless" in sys.argv
-    initialize_machines()
+    current_thread().name = "tk"
+    initialize_threads_and_machines()
     if not g["headless"]:
-        build_window()
-    post_startup_and_demo_stacks()
+        create_tk_event_loop_shell()
+    post_startup_stacks()
     start_workers()
     if g["headless"]:
+        post_demo_stack("alpha")
+        post_demo_stack("bravo")
         run_headless_tk_pump_until_completion()
     else:
         schedule_tk_pump()
         g["root"].mainloop()
-    for thread in threads.values():
-        thread.join()
+    for thread_state in threads.values():
+        if thread_state["thread-obj"] is not None:
+            thread_state["thread-obj"].join()
     trace("[main] clean exit")
 
 
