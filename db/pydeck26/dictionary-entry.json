@@ -6,8 +6,12 @@
     "tags": [
       "cockpit",
       "today",
-      "m1"
+      "m1",
+      "mobilestacks"
     ],
     "hook": "a cockpit for today"
-  }
+  },
+  "technical-features": [
+    "uses 'mobile stacks' concept"
+  ]
 }

@@ -46,7 +46,15 @@
       "title": "Discussing Threads and Memory in Python",
       "url": "https://chatgpt.com/c/6a8e05da-2b28-83e8-96fc-384258b516b1",
       "hook": "checking assumptions",
-      "description": "* Python will switch between threads not only for disk access, but also between ordinary operations.\n* Having a dedicated disk read/write I/O thread is a good way to preserve smooth operation in a Python program."
+      "description": "* Python will switch between threads not only for disk access, but also between ordinary operations.\n* Having a dedicated disk read/write I/O thread is a good way to preserve smooth operation in a Python program.\n* Also addressed a SASE system, so I don't have to match responses to requests: \"Carry the continuation,\" or \"Reply address along with the request.\""
+    },
+    {
+      "id": "6d46ffea-f9b6-4ffb-80d1-930a67855039",
+      "date": "2026-08-27",
+      "title": "Context Handoff Spike",
+      "url": "https://chatgpt.com/c/6a9089b7-ea1c-83e8-9cb8-345519a9a424",
+      "hook": "major shift: use a context-handoff machine",
+      "description": ""
     }
   ]
 }

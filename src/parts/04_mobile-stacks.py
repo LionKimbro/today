@@ -40,6 +40,7 @@ STOP = "STOP"
 
 TODO_PANEL = "TODO"
 JOURNAL_PANEL = "JOURNAL"
+HEARTBEAT_INTERVAL_MS = 15_000
 
 
 # Central Tk-system facts:
@@ -653,7 +654,7 @@ def handle_when_panel_replace_button_is_clicked(position_id):
 def handle_when_heartbeat_timer_fires():
     if not g["shutting-down"]:
         post_tk_instruction("TK_HEARTBEAT", {})
-        g["root"].after(1000, handle_when_heartbeat_timer_fires)
+        g["root"].after(HEARTBEAT_INTERVAL_MS, handle_when_heartbeat_timer_fires)
 
 
 def clear_position_panel(position_id):
@@ -759,7 +760,7 @@ def build_tk_interface_after_startup():
     widgets["trace"].pack(fill="both", expand=True)
     root.protocol("WM_DELETE_WINDOW", request_shutdown)
     root.deiconify()
-    root.after(1000, handle_when_heartbeat_timer_fires)
+    root.after(HEARTBEAT_INTERVAL_MS, handle_when_heartbeat_timer_fires)
     trace("[tk     ] tk:STARTUP built and revealed the two-panel interface")
 
 

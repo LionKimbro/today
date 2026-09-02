@@ -1,8 +1,8 @@
-2026-08-25 ~6pm -- shift in model
-  [DONE] Panels system
-  [DONE] GUI interaction system
-  [DONE] integrated (into 03_combined-01-02.py)
-  [ ] spike solution: memory access, disk access
-  [ ] integrated (into <filename tbd>)
+2026-08-27 ~12:00 noon -- MAJOR shift in architecture -- "Mobile Stacks"
+  03_combined-model.py (EXISTS) -----------combine --> 05_combined-model.py (to create)
+  04_mobile_stacks.py (CREATING NOW)-----'   <------------------------------ THIS is what we're focused on right now!
+     2026-08-28 update: 04 now resembles 02; I'm trying to get clarity on how it's working, and a handle on the code
+
+...then, after 05_combined-model.py:
   [ ] layouts save/load -- note: does NOT need to be M1 data!
   [ ] beginning implementing panels: [ ] orientation notes, [ ] whiteboards, [ ] todo, [ ] journal entries
