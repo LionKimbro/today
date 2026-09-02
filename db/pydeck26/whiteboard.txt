@@ -1,6 +1,7 @@
 2026-08-27 ~12:00 noon -- MAJOR shift in architecture -- "Mobile Stacks"
   03_combined-model.py (EXISTS) -----------combine --> 05_combined-model.py (to create)
-  04_mobile_stacks.py (CREATING NOW)-----'   <------------------------------ THIS is what we're focused on right now!
+  04_mobile_stacks.py (CREATED)-----'   <------------------------------ THIS is what we've just made
+     2026-09-02 update: 04 is clarified on working; next, I need to get the function names under control, and perhaps the code as well
      2026-08-28 update: 04 now resembles 02; I'm trying to get clarity on how it's working, and a handle on the code
 
 ...then, after 05_combined-model.py:
