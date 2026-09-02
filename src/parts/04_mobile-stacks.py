@@ -25,11 +25,13 @@ from collections import deque
 from copy import deepcopy
 from datetime import date, timedelta
 from queue import Empty, Queue
-from threading import Lock, Thread, current_thread
+from threading import Thread, current_thread
 import sys
 import time
 import tkinter as tk
 from tkinter import ttk
+
+import loglogic
 
 
 SERIAL = "SERIAL"
@@ -108,9 +110,6 @@ memory = {"days": {}}
 # {"days": {"YYYY-MM-DD": <complete persisted day record>}}
 disk_store = {"days": {}}
 
-trace_lock = Lock()
-
-
 def state():
     """Return the state record for this physical thread, by its own name."""
     return threads[current_thread().name]
@@ -125,42 +124,10 @@ def top():
     return stack["frames"][-1]
 
 
-def trace(text):
-    with trace_lock:
-        print(text, flush=True)
-
-
-def stack_summary(stack):
-    if not stack["frames"]:
-        return "<empty>"
-    frame = stack["frames"][-1]
-    return f"{frame['machine']}:{frame['op']}"
-
-
-def result_summary(result):
-    """Keep traces readable when a returned value is a complete day snapshot."""
-    if isinstance(result, dict) and "day" in result and "panels" in result:
-        return f"<day snapshot {result['day']}>"
-    return repr(result)
-
-
-def dump_stack(stack):
-    parts = []
-    for frame in stack["frames"]:
-        name = frame.get("name", frame["op"])
-        result = frame.get("child-result")
-        suffix = "" if result is None else f" <- {result_summary(result)}"
-        parts.append(f"{frame['machine']}:{name}{suffix}")
-    return " [ " + " | ".join(parts) + " ]"
-
-
-def log_stack(stack, machine_name, action):
-    line = (
-        f"[{machine_name:7}] stack={stack['id']:18} {action:40} "
-        f"top={stack_summary(stack)}{dump_stack(stack)}"
-    )
-    trace(line)
-    if machine_name == "tk" and widgets.get("trace") is not None:
+def present_trace_line(line):
+    """The tk presentation adapter; worker threads never call this."""
+    print(line, flush=True)
+    if not g["shutting-down"] and widgets.get("trace") is not None:
         widgets["trace"].insert("end", line + "\n")
         widgets["trace"].see("end")
 
@@ -192,11 +159,12 @@ def make_stack(stack_id, kind, root_instruction):
     """Make a new, inactive stack with its first frame already present."""
     # {"id": "<readable stack id>", "kind": "startup" | "ui",
     #  "frames": [<bottom frame>, ..., <top frame>]}
-    return {
+    stack = {
         "id": stack_id,
         "kind": kind,
         "frames": [deepcopy(root_instruction)],
     }
+    return stack
 
 
 def push_frame(instruction):
@@ -204,7 +172,11 @@ def push_frame(instruction):
     stack = state()["stack"]
     frame = deepcopy(instruction)
     stack["frames"].append(frame)
-    log_stack(stack, state()["current-machine"], f"PUSH {frame['machine']}:{frame['op']}")
+    loglogic.emit(
+        "STACK_UPDATED",
+        stack,
+        {"reason": f"expanded procedure with {frame['machine']} / {frame['op']}"},
+    )
 
 
 def pop_frame(result):
@@ -212,14 +184,17 @@ def pop_frame(result):
     stack = state()["stack"]
     machine_name = state()["current-machine"]
     frame = stack["frames"].pop()
-    log_stack(
-        stack,
-        machine_name,
-        f"POP {frame['machine']}:{frame['op']} result={result_summary(result)}",
-    )
+    parent = stack["frames"][-1] if stack["frames"] else None
     if stack["frames"]:
         stack["frames"][-1]["child-result"] = result
-        log_stack(stack, machine_name, f"RETURN result={result_summary(result)} to parent")
+        event_type = "FRAME_RETURNED"
+    else:
+        event_type = "FRAME_COMPLETED"
+    loglogic.emit(
+        event_type,
+        stack,
+        {"frame": frame, "result": result, "parent": parent, "machine": machine_name},
+    )
 
 
 def make_delivery(target_machine, stack):
@@ -230,10 +205,21 @@ def make_delivery(target_machine, stack):
 def send_stack_to_machine(stack, target_machine, source_name):
     """Relinquish a stack to the inbound queue of its target machine's thread."""
     target_thread = machines[target_machine]["thread"]
-    log_stack(
+    loglogic.emit(
+        "STACK_TRANSFERRED",
         stack,
-        source_name,
-        f"TRANSFER -> machine={target_machine} via thread={target_thread}",
+        {"from-machine": source_name, "to-machine": target_machine, "to-thread": target_thread},
+    )
+    threads[target_thread]["in-queue"].put(make_delivery(target_machine, stack))
+
+
+def submit_stack_to_machine(stack, target_machine, source_name):
+    """Submit a new stack for initial admission; it has not migrated yet."""
+    target_thread = machines[target_machine]["thread"]
+    loglogic.emit(
+        "STACK_SUBMITTED",
+        stack,
+        {"source": source_name, "to-machine": target_machine, "to-thread": target_thread},
     )
     threads[target_thread]["in-queue"].put(make_delivery(target_machine, stack))
 
@@ -249,7 +235,6 @@ def admit_delivery_to_machine(thread_name, delivery):
     if machines[machine_name]["thread"] != thread_name:
         raise RuntimeError(f"thread {thread_name} received work for {machine_name}")
     machines[machine_name]["run-queue"].append(stack)
-    log_stack(stack, machine_name, f"THREAD {thread_name} RECEIVE -> machine run-queue")
 
 
 def admit_thread_inbound():
@@ -263,7 +248,7 @@ def admit_thread_inbound():
             return
         if delivery == STOP:
             thread_state["stop-requested"] = True
-            trace(f"[{thread_name:7}] thread received STOP")
+            loglogic.emit("SYSTEM", data={"message": f"thread {thread_name} received STOP"})
             continue
         admit_delivery_to_machine(thread_name, delivery)
 
@@ -275,11 +260,6 @@ def expand_serial():
         return
     instruction = frame["steps"][frame["ip"]]
     frame["ip"] += 1
-    log_stack(
-        state()["stack"],
-        state()["current-machine"],
-        f"IP advance {frame['name']} -> {frame['ip']}/{len(frame['steps'])}",
-    )
     push_frame(instruction)
 
 
@@ -288,12 +268,12 @@ def yield_stack():
     machine_name = state()["current-machine"]
     pop_frame("yield consumed")
     machines[machine_name]["run-queue"].append(stack)
-    log_stack(stack, machine_name, "YIELD -> back of this machine run-queue")
+    loglogic.emit("STACK_YIELDED", stack)
 
 
 def complete_stack():
     stack = state()["stack"]
-    log_stack(stack, state()["current-machine"], "COMPLETE stack")
+    loglogic.emit("STACK_COMPLETED", stack)
     if stack["kind"] == "ui":
         g["completed-stack-count"] += 1
         refresh_machine_status()
@@ -308,7 +288,6 @@ def reconcile():
             return
         frame = top()
         machine_name = state()["current-machine"]
-        log_stack(stack, machine_name, "INSPECT top frame")
         if frame["machine"] != machine_name:
             transfer(frame["machine"])
             return
@@ -337,15 +316,11 @@ def run_one_machine_on_current_thread():
         thread_state["next-machine-index"] = (index + 1) % len(machine_names)
         thread_state["current-machine"] = machine_name
         thread_state["stack"] = machine["run-queue"].popleft()
-        trace(f"[{current_thread().name:7}] register current-machine <- {machine_name}")
-        trace(f"[{current_thread().name:7}] register stack <- {state()['stack']['id']}")
         try:
-            log_stack(state()["stack"], machine_name, "RUN one reconciliation quantum")
             reconcile()
         finally:
             thread_state["stack"] = None
             thread_state["current-machine"] = None
-            trace(f"[{current_thread().name:7}] registers stack/current-machine <- None")
         return True
     return False
 
@@ -356,7 +331,7 @@ def receive_blocking_delivery_for_current_thread():
     delivery = state()["in-queue"].get()
     if delivery == STOP:
         state()["stop-requested"] = True
-        trace(f"[{thread_name:7}] thread received STOP while idle")
+        loglogic.emit("SYSTEM", data={"message": f"thread {thread_name} received STOP while idle"})
         return
     admit_delivery_to_machine(thread_name, delivery)
 
@@ -364,7 +339,7 @@ def receive_blocking_delivery_for_current_thread():
 def run_worker_thread():
     """Worker procedure; its own name identifies its record in ``threads``."""
     thread_name = current_thread().name
-    trace(f"[{thread_name:7}] worker thread started for {state()['machine-names']}")
+    loglogic.emit("SYSTEM", data={"message": f"worker thread {thread_name} started"})
     while True:
         admit_thread_inbound()
         if run_one_machine_on_current_thread():
@@ -372,17 +347,19 @@ def run_worker_thread():
         if state()["stop-requested"]:
             break
         receive_blocking_delivery_for_current_thread()
-    trace(f"[{thread_name:7}] worker thread stopped")
+    loglogic.emit("SYSTEM", data={"message": f"worker thread {thread_name} stopped"})
 
 
 def pump_tk_thread():
     """Tk's non-blocking physical form of the same thread scheduler."""
     g["tk-pump-scheduled"] = False
     admit_thread_inbound()
+    loglogic.present_pending(present_trace_line)
     for _ in range(3):
         if not run_one_machine_on_current_thread():
             break
         admit_thread_inbound()
+        loglogic.present_pending(present_trace_line)
     if not g["shutting-down"]:
         g["tk-pump-scheduled"] = True
         g["root"].after(25, pump_tk_thread)
@@ -434,7 +411,7 @@ def handler_tk():
     if "panel" in frame:
         panel_id = frame["panel"]
         panel_type = panels[panel_id]["type"]
-        log_stack(state()["stack"], "tk", f"PANEL route {panel_id} -> {panel_type}")
+        loglogic.emit("STACK_UPDATED", state()["stack"], {"reason": f"panel route {panel_id} -> {panel_type}"})
         return panel_handlers[panel_type]()
     return handle_tk_system_operation()
 
@@ -590,7 +567,9 @@ def make_panel_edit_stack(stack_id, edit):
 
 
 def post_stack_to_tk(stack):
-    send_stack_to_machine(stack, "tk", "user")
+    source_name = state()["current-machine"] or "user"
+    loglogic.emit("STACK_CREATED", stack, {"initial-owner": source_name})
+    submit_stack_to_machine(stack, "tk", source_name)
     schedule_tk_pump()
 
 
@@ -601,14 +580,18 @@ def next_stack_id(label):
 
 
 def post_load_day_stack(day_text):
+    loglogic.emit("EXTERNAL_EVENT", data={"message": f"request load day {day_text}"})
     post_stack_to_tk(make_load_day_stack(next_stack_id("load-day"), day_text))
 
 
 def post_panel_edit_stack(edit):
+    loglogic.emit("EXTERNAL_EVENT", data={"message": f"panel event: {edit['kind']}"})
     post_stack_to_tk(make_panel_edit_stack(next_stack_id(edit["kind"]), edit))
 
 
 def post_tk_instruction(operation, data):
+    if operation != "TK_HEARTBEAT":
+        loglogic.emit("EXTERNAL_EVENT", data={"message": f"request {operation}"})
     post_stack_to_tk(make_stack(next_stack_id(operation.lower()), "ui", make_instruction("tk", operation, data)))
 
 
@@ -761,7 +744,7 @@ def build_tk_interface_after_startup():
     root.protocol("WM_DELETE_WINDOW", request_shutdown)
     root.deiconify()
     root.after(HEARTBEAT_INTERVAL_MS, handle_when_heartbeat_timer_fires)
-    trace("[tk     ] tk:STARTUP built and revealed the two-panel interface")
+    loglogic.emit("SYSTEM", data={"message": "tk:STARTUP built and revealed the two-panel interface"})
 
 
 def initialize_threads_and_machines():
@@ -793,7 +776,8 @@ def post_startup_stacks():
         startup = make_stack(
             f"boot-{machine_name}", "startup", make_instruction(machine_name, STARTUP)
         )
-        send_stack_to_machine(startup, machine_name, "startup")
+        loglogic.emit("STACK_CREATED", startup, {"initial-owner": "startup"})
+        submit_stack_to_machine(startup, machine_name, "startup")
 
 
 def start_worker_threads():
@@ -809,7 +793,7 @@ def request_shutdown():
     if g["shutting-down"]:
         return
     g["shutting-down"] = True
-    trace("[main   ] shutdown: STOP each worker thread inbound queue")
+    loglogic.emit("SYSTEM", data={"message": "shutdown: STOP each worker thread inbound queue"})
     for thread_state in threads.values():
         if thread_state["thread-type"] == "worker":
             thread_state["in-queue"].put(STOP)
@@ -821,9 +805,11 @@ def run_headless_tk_pump_until_complete():
     """Verification-only replacement for Tk callbacks; logical scheduler unchanged."""
     while not g["shutting-down"]:
         admit_thread_inbound()
+        loglogic.present_pending(present_trace_line)
         for _ in range(3):
             if not run_one_machine_on_current_thread():
                 break
+            loglogic.present_pending(present_trace_line)
         if g["completed-stack-count"] >= 2:
             request_shutdown()
         time.sleep(0.01)
@@ -846,7 +832,8 @@ def main():
     for thread_state in threads.values():
         if thread_state["thread-obj"] is not None:
             thread_state["thread-obj"].join()
-    trace("[main   ] clean exit")
+    loglogic.emit("SYSTEM", data={"message": "clean exit"})
+    loglogic.present_pending(present_trace_line)
 
 
 if __name__ == "__main__":
