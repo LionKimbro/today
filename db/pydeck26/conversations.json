@@ -63,6 +63,14 @@
       "url": "https://chatgpt.com/c/6a97ef57-b850-83e8-a564-603d392f0613",
       "hook": "I've been away for a week",
       "description": ""
+    },
+    {
+      "id": "ac8256af-d5e8-4186-b0ee-279c217bdc59",
+      "date": "2026-09-03",
+      "title": "Mobile Stacks Refinement",
+      "url": "https://chatgpt.com/c/6a98ff86-cf18-83e8-85da-19e6de49800c",
+      "hook": "turning the naive Mobile Stacks implementation into a well-oiled machine",
+      "description": "We also made it so that \"stacks\" have registers, as well, now.  They are kind of like little execution contexts that move around the system and are operated on by the next machine at the right place.\n\nThe main steps (search for \"Refactor stack\") were:\n1. Add stack-local named registers\n2. Move day into the stack register\n3. Eliminate MEM_RETURN_DAY\n4. Add progressive construction context\n5. Add serial() as sugar over the primitives.\n6. Convert the existing stack-building routines ot the progressive API.\n7. Naming pass -- Last"
     }
   ]
 }
