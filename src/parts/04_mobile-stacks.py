@@ -124,7 +124,7 @@ def top():
     return stack["frames"][-1]
 
 
-def present_trace_line(line):
+def present_traceline(line):
     """The tk presentation adapter; worker threads never call this."""
     print(line, flush=True)
     if not g["shutting-down"] and widgets.get("trace") is not None:
@@ -134,34 +134,32 @@ def present_trace_line(line):
 
 def make_instruction(machine_name, operation, data=None):
     """Make an inert instruction template; it becomes a frame only when pushed."""
-    # {"machine": "<target machine>", "op": "<operation>", ...operation data...}
-    instruction = {"machine": machine_name, "op": operation}
-    if data is not None:
-        instruction.update(data)
-    return instruction
+    # {"machine": "<target machine>", "op": "<operation>",
+    #  "data": {<operation-specific fields>}}
+    return {"machine": machine_name, "op": operation, "data": {} if data is None else data}
 
 
 def make_serial_instruction(machine_name, name, steps):
-    # {"machine": "<target>", "op": "SERIAL", "name": "<readable procedure>",
-    #  "steps": [<instruction templates>], "ip": <next instruction index>,
+    # {"machine": "<target>", "op": "SERIAL",
+    #  "data": {"name": "<readable procedure>", "steps": [<instructions>],
+    #           "ip": <next instruction index>},
     #  "child-result": <most recent child result>}
     return {
         "machine": machine_name,
         "op": SERIAL,
-        "name": name,
-        "steps": steps,
-        "ip": 0,
-        "child-result": None,
+        "data": {"name": name, "steps": steps, "ip": 0},
     }
 
 
 def make_stack(stack_id, kind, root_instruction):
     """Make a new, inactive stack with its first frame already present."""
     # {"id": "<readable stack id>", "kind": "startup" | "ui",
+    #  "registers": {<stack-local named state>},
     #  "frames": [<bottom frame>, ..., <top frame>]}
     stack = {
         "id": stack_id,
         "kind": kind,
+        "registers": {},
         "frames": [deepcopy(root_instruction)],
     }
     return stack
@@ -202,8 +200,10 @@ def make_delivery(target_machine, stack):
     return {"machine": target_machine, "stack": stack}
 
 
-def send_stack_to_machine(stack, target_machine, source_name):
-    """Relinquish a stack to the inbound queue of its target machine's thread."""
+def send_stack_to_machine(target_machine):
+    """Relinquish the registered current stack to another machine's thread."""
+    stack = state()["stack"]
+    source_name = state()["current-machine"]
     target_thread = machines[target_machine]["thread"]
     loglogic.emit(
         "STACK_TRANSFERRED",
@@ -211,21 +211,6 @@ def send_stack_to_machine(stack, target_machine, source_name):
         {"from-machine": source_name, "to-machine": target_machine, "to-thread": target_thread},
     )
     threads[target_thread]["in-queue"].put(make_delivery(target_machine, stack))
-
-
-def submit_stack_to_machine(stack, target_machine, source_name):
-    """Submit a new stack for initial admission; it has not migrated yet."""
-    target_thread = machines[target_machine]["thread"]
-    loglogic.emit(
-        "STACK_SUBMITTED",
-        stack,
-        {"source": source_name, "to-machine": target_machine, "to-thread": target_thread},
-    )
-    threads[target_thread]["in-queue"].put(make_delivery(target_machine, stack))
-
-
-def transfer(target_machine):
-    send_stack_to_machine(state()["stack"], target_machine, state()["current-machine"])
 
 
 def admit_delivery_to_machine(thread_name, delivery):
@@ -255,11 +240,12 @@ def admit_thread_inbound():
 
 def expand_serial():
     frame = top()
-    if frame["ip"] == len(frame["steps"]):
-        pop_frame(frame.get("child-result", f"{frame['name']} complete"))
+    data = frame["data"]
+    if data["ip"] == len(data["steps"]):
+        pop_frame(frame.get("child-result", f"{data['name']} complete"))
         return
-    instruction = frame["steps"][frame["ip"]]
-    frame["ip"] += 1
+    instruction = data["steps"][data["ip"]]
+    data["ip"] += 1
     push_frame(instruction)
 
 
@@ -289,7 +275,7 @@ def reconcile():
         frame = top()
         machine_name = state()["current-machine"]
         if frame["machine"] != machine_name:
-            transfer(frame["machine"])
+            send_stack_to_machine(frame["machine"])
             return
         if frame["op"] == YIELD:
             yield_stack()
@@ -354,12 +340,12 @@ def pump_tk_thread():
     """Tk's non-blocking physical form of the same thread scheduler."""
     g["tk-pump-scheduled"] = False
     admit_thread_inbound()
-    loglogic.present_pending(present_trace_line)
+    loglogic.present_pending(present_traceline)
     for _ in range(3):
         if not run_one_machine_on_current_thread():
             break
         admit_thread_inbound()
-        loglogic.present_pending(present_trace_line)
+        loglogic.present_pending(present_traceline)
     if not g["shutting-down"]:
         g["tk-pump-scheduled"] = True
         g["root"].after(25, pump_tk_thread)
@@ -408,8 +394,8 @@ def make_blank_day(day_text):
 def handler_tk():
     """Tk machine handler; panel-type routing happens after machine routing."""
     frame = top()
-    if "panel" in frame:
-        panel_id = frame["panel"]
+    if "panel" in frame["data"]:
+        panel_id = frame["data"]["panel"]
         panel_type = panels[panel_id]["type"]
         loglogic.emit("STACK_UPDATED", state()["stack"], {"reason": f"panel route {panel_id} -> {panel_type}"})
         return panel_handlers[panel_type]()
@@ -430,7 +416,7 @@ def handle_tk_system_operation():
         render_day_snapshot(day_snapshot)
         return f"Tk rendered {day_snapshot['day']}"
     if frame["op"] == "TK_SET_ORIENTATION":
-        g["orientation"] = frame["text"]
+        g["orientation"] = frame["data"]["text"]
         if widgets.get("orientation-var") is not None:
             widgets["orientation-var"].set(g["orientation"])
         return "orientation rendered"
@@ -463,18 +449,21 @@ def handler_mem():
     if frame["op"] == "MEM_EDIT_AND_SAVE":
         return handle_mem_edit_and_save()
     if frame["op"] == "MEM_RETURN_DAY":
-        return deepcopy(memory["days"][frame["day"]])
+        day_text = state()["stack"]["registers"]["day"]
+        return deepcopy(memory["days"][day_text])
     raise ValueError(f"unknown mem operation: {frame['op']}")
 
 
 def handle_mem_load_day():
     frame = top()
-    if frame.get("stage") is None:
-        frame["stage"] = "waiting-for-disk"
-        push_frame(make_instruction("disk", "DISK_READ_DAY", {"day": frame["day"]}))
+    data = frame["data"]
+    day_text = state()["stack"]["registers"]["day"]
+    if data.get("stage") is None:
+        data["stage"] = "waiting-for-disk"
+        push_frame(make_instruction("disk", "DISK_READ_DAY"))
         return SUSPENDED
-    memory["days"][frame["day"]] = deepcopy(frame["child-result"])
-    return f"mem loaded {frame['day']}"
+    memory["days"][day_text] = deepcopy(frame["child-result"])
+    return f"mem loaded {day_text}"
 
 
 def apply_mem_edit(day_record, edit):
@@ -502,14 +491,16 @@ def apply_mem_edit(day_record, edit):
 
 def handle_mem_edit_and_save():
     frame = top()
-    if frame.get("stage") is None:
-        apply_mem_edit(memory["days"][frame["day"]], frame["edit"])
-        frame["stage"] = "waiting-for-disk-save"
+    data = frame["data"]
+    day_text = state()["stack"]["registers"]["day"]
+    if data.get("stage") is None:
+        apply_mem_edit(memory["days"][day_text], data["edit"])
+        data["stage"] = "waiting-for-disk-save"
         push_frame(
             make_instruction(
                 "disk",
                 "DISK_WRITE_DAY",
-                {"day": frame["day"], "day-record": deepcopy(memory["days"][frame["day"]])},
+                {"day-record": deepcopy(memory["days"][day_text])},
             )
         )
         return SUSPENDED
@@ -521,12 +512,15 @@ def handler_disk():
     if frame["op"] == STARTUP:
         return "disk ready"
     if frame["op"] == "DISK_READ_DAY":
-        if frame["day"] not in disk_store["days"]:
-            disk_store["days"][frame["day"]] = make_blank_day(frame["day"])
-        return deepcopy(disk_store["days"][frame["day"]])
+        day_text = state()["stack"]["registers"]["day"]
+        if day_text not in disk_store["days"]:
+            disk_store["days"][day_text] = make_blank_day(day_text)
+        return deepcopy(disk_store["days"][day_text])
     if frame["op"] == "DISK_WRITE_DAY":
-        disk_store["days"][frame["day"]] = deepcopy(frame["day-record"])
-        return f"disk wrote {frame['day']}"
+        data = frame["data"]
+        day_text = state()["stack"]["registers"]["day"]
+        disk_store["days"][day_text] = deepcopy(data["day-record"])
+        return f"disk wrote {day_text}"
     raise ValueError(f"unknown disk operation: {frame['op']}")
 
 
@@ -535,41 +529,53 @@ def make_load_day_stack(stack_id, day_text):
         "mem",
         "MEM_LOAD_TRANSACTION",
         [
-            make_instruction("mem", "MEM_LOAD_DAY", {"day": day_text}),
+            make_instruction("mem", "MEM_LOAD_DAY"),
             make_instruction("mem", YIELD),
-            make_instruction("mem", "MEM_RETURN_DAY", {"day": day_text}),
+            make_instruction("mem", "MEM_RETURN_DAY"),
         ],
     )
     root = make_serial_instruction(
         "tk",
         "TK_LOAD_AND_RENDER_DAY",
-        [mem_transaction, make_instruction("tk", "TK_RENDER_DAY", {"day": day_text})],
+        [mem_transaction, make_instruction("tk", "TK_RENDER_DAY")],
     )
-    return make_stack(stack_id, "ui", root)
+    stack = make_stack(stack_id, "ui", root)
+    stack["registers"]["day"] = day_text
+    return stack
 
 
 def make_panel_edit_stack(stack_id, edit):
-    panel_id = edit.get("panel")
+    edit_data = dict(edit)
+    day_text = edit_data.pop("day")
+    panel_id = edit_data.get("panel")
     mem_transaction = make_serial_instruction(
         "mem",
         "MEM_EDIT_TRANSACTION",
         [
-            make_instruction("mem", "MEM_EDIT_AND_SAVE", {"day": edit["day"], "edit": edit}),
+            make_instruction("mem", "MEM_EDIT_AND_SAVE", {"edit": edit_data}),
             make_instruction("mem", YIELD),
-            make_instruction("mem", "MEM_RETURN_DAY", {"day": edit["day"]}),
+            make_instruction("mem", "MEM_RETURN_DAY"),
         ],
     )
     steps = []
     if panel_id is not None:
         steps.append(make_instruction("tk", "TK_PANEL_EVENT", {"panel": panel_id}))
-    steps.extend([mem_transaction, make_instruction("tk", "TK_RENDER_DAY", {"day": edit["day"]})])
-    return make_stack(stack_id, "ui", make_serial_instruction("tk", "TK_EDIT_AND_RENDER", steps))
+    steps.extend([mem_transaction, make_instruction("tk", "TK_RENDER_DAY")])
+    stack = make_stack(stack_id, "ui", make_serial_instruction("tk", "TK_EDIT_AND_RENDER", steps))
+    stack["registers"]["day"] = day_text
+    return stack
 
 
 def post_stack_to_tk(stack):
     source_name = state()["current-machine"] or "user"
+    target_thread = machines["tk"]["thread"]
     loglogic.emit("STACK_CREATED", stack, {"initial-owner": source_name})
-    submit_stack_to_machine(stack, "tk", source_name)
+    loglogic.emit(
+        "STACK_SUBMITTED",
+        stack,
+        {"source": source_name, "to-machine": "tk", "to-thread": target_thread},
+    )
+    threads[target_thread]["in-queue"].put(make_delivery("tk", stack))
     schedule_tk_pump()
 
 
@@ -776,8 +782,14 @@ def post_startup_stacks():
         startup = make_stack(
             f"boot-{machine_name}", "startup", make_instruction(machine_name, STARTUP)
         )
+        target_thread = machines[machine_name]["thread"]
         loglogic.emit("STACK_CREATED", startup, {"initial-owner": "startup"})
-        submit_stack_to_machine(startup, machine_name, "startup")
+        loglogic.emit(
+            "STACK_SUBMITTED",
+            startup,
+            {"source": "startup", "to-machine": machine_name, "to-thread": target_thread},
+        )
+        threads[target_thread]["in-queue"].put(make_delivery(machine_name, startup))
 
 
 def start_worker_threads():
@@ -805,11 +817,11 @@ def run_headless_tk_pump_until_complete():
     """Verification-only replacement for Tk callbacks; logical scheduler unchanged."""
     while not g["shutting-down"]:
         admit_thread_inbound()
-        loglogic.present_pending(present_trace_line)
+        loglogic.present_pending(present_traceline)
         for _ in range(3):
             if not run_one_machine_on_current_thread():
                 break
-            loglogic.present_pending(present_trace_line)
+            loglogic.present_pending(present_traceline)
         if g["completed-stack-count"] >= 2:
             request_shutdown()
         time.sleep(0.01)
@@ -833,7 +845,7 @@ def main():
         if thread_state["thread-obj"] is not None:
             thread_state["thread-obj"].join()
     loglogic.emit("SYSTEM", data={"message": "clean exit"})
-    loglogic.present_pending(present_trace_line)
+    loglogic.present_pending(present_traceline)
 
 
 if __name__ == "__main__":

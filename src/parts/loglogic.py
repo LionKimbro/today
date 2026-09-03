@@ -24,16 +24,18 @@ def result_summary(result):
 
 def instruction_summary(frame):
     if frame["op"] == "SERIAL":
-        return frame["name"]
+        return frame["data"]["name"]
     return frame["op"]
 
 
 def snapshot_stack(stack):
     # {"id": "<readable stack id>", "kind": "startup" | "ui",
+    #  "registers": {<stack-local named state>},
     #  "frames": [<immutable frame snapshots>]}
     return {
         "id": stack["id"],
         "kind": stack["kind"],
+        "registers": deepcopy(stack["registers"]),
         "frames": deepcopy(stack["frames"]),
     }
 
@@ -51,24 +53,29 @@ def emit(event_type, stack=None, data=None):
 
 
 def describe_stack(stack):
-    lines = [f"  stack: {stack['id']}", "  frames:"]
+    lines = [f"  stack: {stack['id']}"]
+    if stack["registers"]:
+        lines.append("  registers:")
+        for name, value in stack["registers"].items():
+            lines.append(f"    {name}: {result_summary(value)}")
+    lines.append("  frames:")
     frames = stack["frames"]
     for index, frame in enumerate(frames):
         marker = "  <-- TOP" if index == len(frames) - 1 else ""
         line = f"    [{index}] machine={frame['machine']}  op={instruction_summary(frame)}"
         if frame["op"] == "SERIAL":
-            line += f"  kind=SERIAL  ip={frame['ip']}/{len(frame['steps'])}"
+            line += f"  kind=SERIAL  ip={frame['data']['ip']}/{len(frame['data']['steps'])}"
         lines.append(line + marker)
         if frame.get("child-result") is not None:
             lines.append(f"        returned-result: {result_summary(frame['child-result'])}")
         if frame["op"] == "SERIAL":
             lines.append("        instructions:")
-            for instruction_index, instruction in enumerate(frame["steps"]):
-                marker = "[cur:]" if instruction_index == frame["ip"] else "      "
+            for instruction_index, instruction in enumerate(frame["data"]["steps"]):
+                marker = "[cur:]" if instruction_index == frame["data"]["ip"] else "      "
                 lines.append(
                     f"          {marker} {instruction_index}: {instruction_summary(instruction)}"
                 )
-            if frame["ip"] == len(frame["steps"]):
+            if frame["data"]["ip"] == len(frame["data"]["steps"]):
                 lines.append("          [done] all instructions have been pushed")
     return lines
 
@@ -96,7 +103,7 @@ def format_event(event):
             f"  submitted by: {data['source']}",
             f"  destination: {data['to-machine']} (thread {data['to-thread']})",
             "  note: this is initial admission, not a continuation transfer",
-            *describe_stack(stack)[2:],
+            *describe_stack(stack)[1:],
         ]
     if event_type == "STACK_TRANSFERRED":
         return [
@@ -105,7 +112,7 @@ def format_event(event):
             f"  from: {data['from-machine']}",
             f"  to: {data['to-machine']} (thread {data['to-thread']})",
             "  reason: top frame targets another machine",
-            *describe_stack(stack)[2:],
+            *describe_stack(stack)[1:],
         ]
     if event_type == "FRAME_RETURNED":
         lines = [
@@ -121,7 +128,7 @@ def format_event(event):
                 "  result delivered to: "
                 f"{data['parent']['machine']} / {instruction_summary(data['parent'])}"
             )
-        return lines + describe_stack(stack)[2:]
+        return lines + describe_stack(stack)[1:]
     if event_type == "FRAME_COMPLETED":
         return [
             "FRAME COMPLETED",
@@ -131,7 +138,7 @@ def format_event(event):
             "  no parent frame: this was the bottom frame",
         ]
     if event_type == "STACK_YIELDED":
-        return ["STACK YIELDED", f"  stack: {stack['id']}", "  reason: let another runnable stack proceed", *describe_stack(stack)[2:]]
+        return ["STACK YIELDED", f"  stack: {stack['id']}", "  reason: let another runnable stack proceed", *describe_stack(stack)[1:]]
     if event_type == "STACK_COMPLETED":
         return ["STACK COMPLETED", f"  stack: {stack['id']}"]
     raise ValueError(f"unknown trace event: {event_type}")
