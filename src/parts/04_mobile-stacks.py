@@ -527,6 +527,7 @@ def post_pending_load_day():
 def make_blank_day(day_text):
     """Make one persisted day bundle; mem splits it into days and panels on load."""
     todo_id = f"panel-{day_text}-todo-1"
+    alternate_todo_id = f"panel-{day_text}-todo-2"
     journal_id = f"panel-{day_text}-journal-1"
     alternate_journal_id = f"panel-{day_text}-journal-2"
     # {"day": "YYYY-MM-DD", "position-panel": {<position>: <panel-id>},
@@ -541,6 +542,10 @@ def make_blank_day(day_text):
             todo_id: {
                 "type": TODO_PANEL,
                 "state": {"items": [{"text": f"Try the stack route on {day_text}", "done": False}]},
+            },
+            alternate_todo_id: {
+                "type": TODO_PANEL,
+                "state": {"items": [{"text": f"An alternate TODO for {day_text}", "done": False}]},
             },
             journal_id: {
                 "type": JOURNAL_PANEL,
@@ -587,8 +592,10 @@ def make_day_bundle(day_text):
 def handler_tk():
     """Tk machine handler; panel-type routing happens after machine routing."""
     frame = top()
-    if "panel" in frame["data"]:
-        panel_id = frame["data"]["panel"]
+    panel_id = frame["data"].get("panel")
+    if frame["op"] == "TK_REFRESH_PANEL":
+        panel_id = get_register("panel")
+    if panel_id is not None:
         panel_type = panel_types[panel_id]
         loglogic.emit("STACK_UPDATED", state()["stack"], {"reason": f"panel route {panel_id} -> {panel_type}"})
         return panel_handlers[panel_type]()
@@ -627,6 +634,16 @@ def handle_tk_system_operation():
 
 
 def handle_todo_panel_operation():
+    if top()["op"] == "TK_REFRESH_PANEL":
+        panel_id = get_register("panel")
+        item = panel_records[panel_id]["state"]["items"][0]
+        item["done"] = get_register("todo-done")
+        panel_widget = panel_widgets.get(panel_id)
+        if panel_widget is not None:
+            panel_widget["status"].configure(
+                text=("done" if item["done"] else "open") + ": " + item["text"]
+            )
+        return f"Tk refreshed TODO panel {panel_id}"
     if top()["op"] == "TK_PANEL_EVENT":
         return "TODO panel accepted its event"
     raise ValueError(f"unknown TODO panel operation: {top()['op']}")
@@ -887,11 +904,16 @@ def handle_when_todo_toggle_button_is_clicked(panel_id, desired_value):
     loglogic.emit("EXTERNAL_EVENT", data={"message": "panel event: toggle-todo"})
     begin_stack(next_stack_id("toggle-todo"), "ui")
     set_register("panel", panel_id)
-    target("mem")
-    instruction(
-        "SET_TODO_STATE",
-        {"item": 0, "done": desired_value},
-    )
+    set_register("todo-done", desired_value)
+    target("tk")
+    with serial("TK_SET_TODO_AND_REFRESH"):
+        target("mem")
+        instruction(
+            "SET_TODO_STATE",
+            {"item": 0, "done": desired_value},
+        )
+        target("tk")
+        instruction("TK_REFRESH_PANEL")
     end_stack()
     post_stack()
 
@@ -921,15 +943,18 @@ def clear_position_panel(position_id):
 
 
 def choose_panel(position_id):
-    """Choose an available opposite-type panel from Tk's current presentation snapshot."""
+    """Choose an unmounted opposite-type panel from Tk's presentation snapshot."""
     current_panel = position_widgets[position_id]["mounted-panel"]
     current_type = panel_types[current_panel]
     desired_type = JOURNAL_PANEL if current_type == TODO_PANEL else TODO_PANEL
-    return next(
-        panel_id
-        for panel_id, panel_record in panel_records.items()
-        if panel_record["type"] == desired_type
-    )
+    mounted_panels = {
+        position_record.get("mounted-panel")
+        for position_record in position_widgets.values()
+    }
+    for panel_id, panel_record in panel_records.items():
+        if panel_record["type"] == desired_type and panel_id not in mounted_panels:
+            return panel_id
+    raise RuntimeError(f"no unmounted {desired_type} panel is available for {position_id}")
 
 
 def mount_panel(position_id, panel_id):
@@ -1017,8 +1042,11 @@ def build_panel_host(parent, position_id):
     position_widgets[position_id]["host"] = host
     position_widgets[position_id]["panel-label"] = ttk.Label(host)
     position_widgets[position_id]["panel-label"].pack(anchor="w", padx=8, pady=(4, 0))
-    if position_id == "position-1":
-        ttk.Button(host, text="Replace panel", command=lambda: handle_when_panel_replace_button_is_clicked(position_id)).pack(anchor="w", padx=8, pady=(4, 0))
+    ttk.Button(
+        host,
+        text="Replace panel",
+        command=lambda: handle_when_panel_replace_button_is_clicked(position_id),
+    ).pack(anchor="w", padx=8, pady=(4, 0))
 
 
 def create_tk_event_loop_shell():

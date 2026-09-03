@@ -167,6 +167,7 @@ SET_TODO_STATE frame
   - done -- `bool`: state explicitly selected by the user
 - stack register
   - panel -- `str`: selected panel id, bound by Tk/control before posting
+  - todo-done -- `bool`: selected state carried onward to Tk presentation
 
 MEM_SAVE_DAY frame
 - stack register
@@ -191,6 +192,10 @@ opposite state. Mem rewrites the semantic frame in place as the private
 `path == ["items", item, "done"]`, then `MEM_SAVE_DAY`.
 `MEM_SET_PANEL_STATE` uses `resolve_path(data, path)` to locate the containing
 state record and assign the final path component.
+The enclosing `TK_SET_TODO_AND_REFRESH` serial then returns to Tk for
+`TK_REFRESH_PANEL`. That panel-type-routed instruction applies `todo-done` to
+Tk's presentation snapshot and its mounted status label. It does not read
+authoritative `memory`.
 
 SET_POSITION_PANEL frame
 - stack registers
@@ -205,8 +210,8 @@ MEM_SET_POSITION_PANEL frame
   - panel -- `str`: panel id whose same-day ownership mem validates
 `MEM_SAVE_DAY` derives the day from the selected panel's reverse `day` link,
 updates the stack's `day` register, then writes that day bundle through disk.
-The TODO stack is mem-only after its UI callback; it does not perform a Tk
-render.
+Ordinary TODO edits do not perform a whole-day `TK_RENDER_DAY`; they return
+only for `TK_REFRESH_PANEL`.
 
 TK_PANEL_EVENT frame
 - data
