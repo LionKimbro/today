@@ -589,6 +589,8 @@ def handler_mem():
         return "mem ready"
     if frame["op"] == "MEM_LOAD_DAY":
         return handle_mem_load_day()
+    if frame["op"] == "SET_TODO_STATE":
+        return handle_set_todo_state()
     if frame["op"] == "MEM_SET_PANEL_STATE":
         return handle_mem_set_panel_state()
     if frame["op"] == "MEM_SAVE_DAY":
@@ -613,10 +615,7 @@ def handle_mem_load_day():
 
 
 def apply_mem_edit(day_record, edit):
-    if edit["kind"] == "toggle-todo":
-        item = memory["panels"][edit["panel"]]["state"]["items"][0]
-        item["done"] = not item["done"]
-    elif edit["kind"] == "edit-journal":
+    if edit["kind"] == "edit-journal":
         memory["panels"][edit["panel"]]["state"]["text"] = edit["text"]
     elif edit["kind"] == "replace-panel":
         position = edit["position"]
@@ -644,6 +643,30 @@ def resolve_path(data, path):
     for key in path:
         data = data[key]
     return data
+
+
+def handle_set_todo_state():
+    """Bind a semantic TODO request, then replace it with private mem serial work."""
+    frame = top()
+    data = frame["data"]
+    state()["stack"]["frames"].pop()
+    target("mem")
+    instruction(
+        SERIAL,
+        {
+            "name": "MEM_SET_AND_SAVE_TODO",
+            "steps": [
+                {
+                    "machine": "mem",
+                    "op": "MEM_SET_PANEL_STATE",
+                    "data": {"path": ["items", data["item"], "done"], "value": data["done"]},
+                },
+                {"machine": "mem", "op": "MEM_SAVE_DAY", "data": {}},
+            ],
+            "ip": 0,
+        },
+    )
+    return SUSPENDED
 
 
 def handle_mem_set_panel_state():
@@ -813,12 +836,10 @@ def handle_when_todo_toggle_button_is_clicked(panel_id, desired_value):
     begin_stack(next_stack_id("toggle-todo"), "ui")
     set_register("panel", panel_id)
     target("mem")
-    with serial("MEM_SET_AND_SAVE_PANEL"):
-        instruction(
-            "MEM_SET_PANEL_STATE",
-            {"path": ["items", 0, "done"], "value": desired_value},
-        )
-        instruction("MEM_SAVE_DAY")
+    instruction(
+        "SET_TODO_STATE",
+        {"item": 0, "done": desired_value},
+    )
     end_stack()
     post_stack()
 

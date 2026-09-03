@@ -160,6 +160,13 @@ MEM_SET_PANEL_STATE frame
 - stack register
   - panel -- `str`: selected panel id
 
+SET_TODO_STATE frame
+- data
+  - item -- `int`: TODO item index
+  - done -- `bool`: state explicitly selected by the user
+- stack register
+  - panel -- `str`: selected panel id, bound by Tk/control before posting
+
 MEM_SAVE_DAY frame
 - stack register
   - panel -- `str`: panel whose owning day is persisted
@@ -175,12 +182,18 @@ that stack-register bundle after its in-memory edit and writes a reassembled
 bundle to disk. `TK_RENDER_DAY` reads the stack-local bundle; there is no
 `MEM_RETURN_DAY` frame in this version of the spike.
 
+`SET_TODO_STATE` is the Tk/control-facing semantic instruction. Tk/control
+binds the selected panel in the stack register and supplies the item plus
+explicit desired `done` value; it never asks mem to toggle or infer the
+opposite state. Mem drops the semantic frame, then pushes the private
+`MEM_SET_AND_SAVE_TODO` serial. Its steps are `MEM_SET_PANEL_STATE` with
+`path == ["items", item, "done"]`, then `MEM_SAVE_DAY`.
 `MEM_SET_PANEL_STATE` uses `resolve_path(data, path)` to locate the containing
-state record, then assigns the final path component. The TODO toggle uses
-`path == ["items", 0, "done"]`. `MEM_SAVE_DAY` derives the day from the
-selected panel's reverse `day` link, updates the stack's `day` register, then
-writes that day bundle through disk. The TODO toggle stack is
-mem-only after its UI callback; it does not perform a Tk render.
+state record and assign the final path component.
+`MEM_SAVE_DAY` derives the day from the selected panel's reverse `day` link,
+updates the stack's `day` register, then writes that day bundle through disk.
+The TODO stack is mem-only after its UI callback; it does not perform a Tk
+render.
 
 TK_PANEL_EVENT frame
 - data
