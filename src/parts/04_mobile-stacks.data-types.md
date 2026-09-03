@@ -20,6 +20,7 @@ g
 - next-stack-number -- `int`: source for readable new stack ids
 - completed-stack-count -- `int`: count of completed UI stacks
 - startup-load-day -- `str | None`: initial day request deferred until tk boot ends
+- rendered-day -- `str | None`: day currently represented by Tk presentation state
 ```
 
 `g` contains central, fixed-shape program facts. It is not the storage for
@@ -190,6 +191,18 @@ opposite state. Mem rewrites the semantic frame in place as the private
 `path == ["items", item, "done"]`, then `MEM_SAVE_DAY`.
 `MEM_SET_PANEL_STATE` uses `resolve_path(data, path)` to locate the containing
 state record and assign the final path component.
+
+SET_POSITION_PANEL frame
+- stack registers
+  - day -- `str`: currently rendered day whose durable layout is changing
+  - position -- `str`: visible position whose durable panel id should be recorded
+  - panel -- `str`: panel id selected by Tk in the preceding Tk instruction
+
+MEM_SET_POSITION_PANEL frame
+- stack registers
+  - day -- `str`: durable day-layout owner
+  - position -- `str`: durable day-layout position to update
+  - panel -- `str`: panel id whose same-day ownership mem validates
 `MEM_SAVE_DAY` derives the day from the selected panel's reverse `day` link,
 updates the stack's `day` register, then writes that day bundle through disk.
 The TODO stack is mem-only after its UI callback; it does not perform a Tk
@@ -431,6 +444,14 @@ panel_types
 ```
 
 ```text
+panel_records
+- key -- `str`: panel id
+- value -- panel record copied from the currently rendered day bundle
+  - type -- `"TODO" | "JOURNAL"`
+  - state -- snapshot panel state used to build Tk widgets
+```
+
+```text
 panel_widgets
 - key -- `str`: panel id
 - value -- widget record for its currently mounted contents
@@ -441,8 +462,13 @@ panel_widgets
 
 These collections belong to Tk. The `panel_types` mapping is used by
 `handler_tk()` for panel-type routing. `render_day_snapshot()` fills that cache
-from the day bundle in the current stack register; Tk never consults
-authoritative `memory`.
+and `panel_records` from the day bundle in the current stack register; Tk
+never consults authoritative `memory`. `position_widgets` records the panels
+currently mounted in the visible positions. On `REPLACE-PANEL`, Tk uses these
+three presentation collections in `TK_CHOOSE_AND_MOUNT_PANEL` to choose and
+mount a replacement. The following `SET_POSITION_PANEL` serial instruction
+then sends the explicit desired position/panel state to mem. Mem only records
+that mapping and persists it; it does not choose the replacement or render Tk.
 
 ## `panel_handlers`
 

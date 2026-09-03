@@ -62,6 +62,7 @@ g = {
     "next-stack-number": 1,
     "completed-stack-count": 0,
     "startup-load-day": None,
+    "rendered-day": None,
 }
 
 # Physical execution contexts.  The stack register names the one stack this
@@ -106,6 +107,10 @@ position_widgets = {
 # authoritative memory: {"<panel-id>": "TODO" | "JOURNAL"}
 panel_types = {}
 
+# Tk presentation snapshot, copied from the rendered day bundle; it is not
+# authoritative memory: {"<panel-id>": {"type": <type>, "state": <state>}}
+panel_records = {}
+
 # {"<panel-id>": {"content": <ttk.Frame>, "status": <ttk.Label>, ...}}
 panel_widgets = {}
 
@@ -142,6 +147,14 @@ def set_register(key, value):
     if stack is None:
         raise RuntimeError("set_register requires a current stack")
     stack["registers"][key] = value
+
+
+def get_register(key):
+    """Read named state from this thread's one current stack."""
+    stack = state()["stack"]
+    if stack is None:
+        raise RuntimeError("get_register requires a current stack")
+    return stack["registers"][key]
 
 
 def present_traceline(line):
@@ -605,6 +618,11 @@ def handle_tk_system_operation():
         if widgets.get("heartbeat-label") is not None:
             widgets["heartbeat-label"].configure(text=f"heartbeat {g['heartbeat']}")
         return "heartbeat rendered"
+    if frame["op"] == "REPLACE-PANEL":
+        handle_tk_replace_panel()
+        return
+    if frame["op"] == "TK_CHOOSE_AND_MOUNT_PANEL":
+        return handle_tk_choose_and_mount_panel()
     raise ValueError(f"unknown tk operation: {frame['op']}")
 
 
@@ -628,8 +646,12 @@ def handler_mem():
         return handle_mem_load_day()
     if frame["op"] == "SET_TODO_STATE":
         return handle_set_todo_state()
+    if frame["op"] == "SET_POSITION_PANEL":
+        return handle_set_position_panel()
     if frame["op"] == "MEM_SET_PANEL_STATE":
         return handle_mem_set_panel_state()
+    if frame["op"] == "MEM_SET_POSITION_PANEL":
+        return handle_mem_set_position_panel()
     if frame["op"] == "MEM_SAVE_DAY":
         return handle_mem_save_day()
     if frame["op"] == "MEM_EDIT_AND_SAVE":
@@ -654,23 +676,6 @@ def handle_mem_load_day():
 def apply_mem_edit(day_record, edit):
     if edit["kind"] == "edit-journal":
         memory["panels"][edit["panel"]]["state"]["text"] = edit["text"]
-    elif edit["kind"] == "replace-panel":
-        position = edit["position"]
-        current_panel = day_record["position-panel"][position]
-        current_type = memory["panels"][current_panel]["type"]
-        candidates = memory["panels"]
-        if current_type == TODO_PANEL:
-            day_record["position-panel"][position] = next(
-                panel_id
-                for panel_id, panel in candidates.items()
-                if panel["day"] == day_record["day"] and panel["type"] == JOURNAL_PANEL
-            )
-        else:
-            day_record["position-panel"][position] = next(
-                panel_id
-                for panel_id, panel in candidates.items()
-                if panel["day"] == day_record["day"] and panel["type"] == TODO_PANEL
-            )
     else:
         raise ValueError(f"unknown mem edit: {edit['kind']}")
 
@@ -696,6 +701,15 @@ def handle_set_todo_state():
     end_replacement("MEM_SET_AND_SAVE_TODO")
 
 
+def handle_set_position_panel():
+    """Rewrite a desired Tk layout result into private mem mutation and save work."""
+    begin_replacement("MEM_SET_AND_SAVE_POSITION")
+    target("mem")
+    instruction("MEM_SET_POSITION_PANEL")
+    instruction("MEM_SAVE_DAY")
+    end_replacement("MEM_SET_AND_SAVE_POSITION")
+
+
 def handle_mem_set_panel_state():
     frame = top()
     panel_id = state()["stack"]["registers"]["panel"]
@@ -704,6 +718,17 @@ def handle_mem_set_panel_state():
     target_state = resolve_path(panel_state, path[:-1])
     target_state[path[-1]] = frame["data"]["value"]
     return "panel state set"
+
+
+def handle_mem_set_position_panel():
+    """Privately record the explicit panel choice for one durable day position."""
+    day_text = get_register("day")
+    position_id = get_register("position")
+    panel_id = get_register("panel")
+    if memory["panels"][panel_id]["day"] != day_text:
+        raise RuntimeError(f"panel {panel_id} does not belong to {day_text}")
+    memory["days"][day_text]["position-panel"][position_id] = panel_id
+    return "position panel set"
 
 
 def handle_mem_save_day():
@@ -878,7 +903,7 @@ def handle_when_journal_entry_is_submitted(event, panel_id):
 
 
 def handle_when_panel_replace_button_is_clicked(position_id):
-    post_panel_edit_stack({"kind": "replace-panel", "day": current_day_text(), "position": position_id})
+    post_tk("REPLACE-PANEL", {"position": position_id})
 
 
 def handle_when_heartbeat_timer_fires():
@@ -895,17 +920,61 @@ def clear_position_panel(position_id):
         panel_widgets.pop(old_panel, None)
 
 
+def choose_panel(position_id):
+    """Choose an available opposite-type panel from Tk's current presentation snapshot."""
+    current_panel = position_widgets[position_id]["mounted-panel"]
+    current_type = panel_types[current_panel]
+    desired_type = JOURNAL_PANEL if current_type == TODO_PANEL else TODO_PANEL
+    return next(
+        panel_id
+        for panel_id, panel_record in panel_records.items()
+        if panel_record["type"] == desired_type
+    )
+
+
+def mount_panel(position_id, panel_id):
+    """Make one Tk presentation position visibly host this snapshot panel."""
+    if not g["headless"]:
+        clear_position_panel(position_id)
+    position_widgets[position_id]["mounted-panel"] = panel_id
+    if not g["headless"]:
+        build_panel_in_position(position_id, panel_id, panel_records[panel_id])
+
+
+def handle_tk_replace_panel():
+    """Expand a Tk layout request into Tk choice/mount and mem persistence steps."""
+    position_id = top()["data"]["position"]
+    set_register("position", position_id)
+    set_register("day", g["rendered-day"])
+    begin_replacement("TK_REPLACE_AND_SAVE_PANEL")
+    target("tk")
+    instruction("TK_CHOOSE_AND_MOUNT_PANEL")
+    target("mem")
+    instruction("SET_POSITION_PANEL")
+    end_replacement("TK_REPLACE_AND_SAVE_PANEL")
+
+
+def handle_tk_choose_and_mount_panel():
+    """Choose and mount one replacement panel using only Tk presentation state."""
+    position_id = get_register("position")
+    desired_panel = choose_panel(position_id)
+    mount_panel(position_id, desired_panel)
+    set_register("panel", desired_panel)
+    return f"Tk mounted {desired_panel} in {position_id}"
+
+
 def render_day_snapshot(day_record):
     """Render the day bundle carried by the stack; Tk never reads mem memory."""
-    if g["headless"]:
-        return
-    widgets["date-label"].configure(text=day_record["day"])
-    for position_id, panel_id in day_record["position-panel"].items():
-        panel_record = day_record["panels"][panel_id]
+    g["rendered-day"] = day_record["day"]
+    panel_records.clear()
+    panel_types.clear()
+    for panel_id, panel_record in day_record["panels"].items():
+        panel_records[panel_id] = deepcopy(panel_record)
         panel_types[panel_id] = panel_record["type"]
-        clear_position_panel(position_id)
-        position_widgets[position_id]["mounted-panel"] = panel_id
-        build_panel_in_position(position_id, panel_id, panel_record)
+    if not g["headless"]:
+        widgets["date-label"].configure(text=day_record["day"])
+    for position_id, panel_id in day_record["position-panel"].items():
+        mount_panel(position_id, panel_id)
 
 
 def build_panel_in_position(position_id, panel_id, panel_record):
