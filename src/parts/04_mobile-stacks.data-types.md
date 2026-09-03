@@ -59,6 +59,10 @@ are not cross-thread communication channels.
 `stack` is not executing and never travels through queues. Each physical
 thread has its own independent builder registers.
 
+`set_register(key, value)` writes into the builder stack's `registers` when a
+builder stack is active; otherwise it writes into the executing stack's
+`registers`.
+
 ## `machines` — semantic execution machines
 
 ```text
@@ -244,6 +248,26 @@ with serial("FOO"):
 
 It calls `begin_serial("FOO")` on entry and `end_serial("FOO")` on exit. It
 adds no construction state or execution behavior beyond those primitives.
+
+The day-flow builders now use this progressive form. For example, the
+load-and-render stack is constructed conceptually as:
+
+```python
+begin_stack(stack_id, "ui")
+set_register("day", day_text)
+target("tk")
+with serial("TK_LOAD_AND_RENDER_DAY"):
+    target("mem")
+    with serial("MEM_LOAD_TRANSACTION"):
+        instruction("MEM_LOAD_DAY")
+        instruction(YIELD)
+    target("tk")
+    instruction("TK_RENDER_DAY")
+stack = end_stack()
+```
+
+`make_panel_edit_stack()` follows the same pattern, adding its optional Tk
+panel event before its mem edit transaction.
 
 ## `memory` — mem-owned authoritative day records
 

@@ -128,6 +128,18 @@ def top():
     return stack["frames"][-1]
 
 
+def set_register(key, value):
+    """Write named state into the executing stack or the stack being built."""
+    builder_stack = state()["builder"]["stack"]
+    if builder_stack is not None:
+        stack = builder_stack
+    else:
+        stack = state()["stack"]
+    if stack is None:
+        raise RuntimeError("set_register requires a current or building stack")
+    stack["registers"][key] = value
+
+
 def present_traceline(line):
     """The tk presentation adapter; worker threads never call this."""
     print(line, flush=True)
@@ -553,7 +565,7 @@ def handle_mem_load_day():
         push_frame(make_instruction("disk", "DISK_READ_DAY"))
         return SUSPENDED
     memory["days"][day_text] = deepcopy(frame["child-result"])
-    state()["stack"]["registers"]["day-record"] = deepcopy(memory["days"][day_text])
+    set_register("day-record", deepcopy(memory["days"][day_text]))
     return f"mem loaded {day_text}"
 
 
@@ -586,7 +598,7 @@ def handle_mem_edit_and_save():
     day_text = state()["stack"]["registers"]["day"]
     if data.get("stage") is None:
         apply_mem_edit(memory["days"][day_text], data["edit"])
-        state()["stack"]["registers"]["day-record"] = deepcopy(memory["days"][day_text])
+        set_register("day-record", deepcopy(memory["days"][day_text]))
         data["stage"] = "waiting-for-disk-save"
         push_frame(
             make_instruction(
@@ -617,43 +629,36 @@ def handler_disk():
 
 
 def make_load_day_stack(stack_id, day_text):
-    mem_transaction = make_serial_instruction(
-        "mem",
-        "MEM_LOAD_TRANSACTION",
-        [
-            make_instruction("mem", "MEM_LOAD_DAY"),
-            make_instruction("mem", YIELD),
-        ],
-    )
-    root = make_serial_instruction(
-        "tk",
-        "TK_LOAD_AND_RENDER_DAY",
-        [mem_transaction, make_instruction("tk", "TK_RENDER_DAY")],
-    )
-    stack = make_stack(stack_id, "ui", root)
-    stack["registers"]["day"] = day_text
-    return stack
+    begin_stack(stack_id, "ui")
+    set_register("day", day_text)
+    target("tk")
+    with serial("TK_LOAD_AND_RENDER_DAY"):
+        target("mem")
+        with serial("MEM_LOAD_TRANSACTION"):
+            instruction("MEM_LOAD_DAY")
+            instruction(YIELD)
+        target("tk")
+        instruction("TK_RENDER_DAY")
+    return end_stack()
 
 
 def make_panel_edit_stack(stack_id, edit):
     edit_data = dict(edit)
     day_text = edit_data.pop("day")
     panel_id = edit_data.get("panel")
-    mem_transaction = make_serial_instruction(
-        "mem",
-        "MEM_EDIT_TRANSACTION",
-        [
-            make_instruction("mem", "MEM_EDIT_AND_SAVE", {"edit": edit_data}),
-            make_instruction("mem", YIELD),
-        ],
-    )
-    steps = []
-    if panel_id is not None:
-        steps.append(make_instruction("tk", "TK_PANEL_EVENT", {"panel": panel_id}))
-    steps.extend([mem_transaction, make_instruction("tk", "TK_RENDER_DAY")])
-    stack = make_stack(stack_id, "ui", make_serial_instruction("tk", "TK_EDIT_AND_RENDER", steps))
-    stack["registers"]["day"] = day_text
-    return stack
+    begin_stack(stack_id, "ui")
+    set_register("day", day_text)
+    target("tk")
+    with serial("TK_EDIT_AND_RENDER"):
+        if panel_id is not None:
+            instruction("TK_PANEL_EVENT", {"panel": panel_id})
+        target("mem")
+        with serial("MEM_EDIT_TRANSACTION"):
+            instruction("MEM_EDIT_AND_SAVE", {"edit": edit_data})
+            instruction(YIELD)
+        target("tk")
+        instruction("TK_RENDER_DAY")
+    return end_stack()
 
 
 def post_stack_to_tk(stack):
