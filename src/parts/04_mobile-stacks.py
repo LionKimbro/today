@@ -102,8 +102,9 @@ position_widgets = {
     "position-2": {},
 }
 
-# {"<panel-id>": {"type": "TODO" | "JOURNAL"}}
-panels = {}
+# Tk panel-type cache, populated from rendered day bundles; it is not
+# authoritative memory: {"<panel-id>": "TODO" | "JOURNAL"}
+panel_types = {}
 
 # {"<panel-id>": {"content": <ttk.Frame>, "status": <ttk.Label>, ...}}
 panel_widgets = {}
@@ -362,7 +363,6 @@ def complete_stack():
     loglogic.emit("STACK_COMPLETED", stack)
     if stack["kind"] == "ui":
         g["completed-stack-count"] += 1
-        refresh_machine_status()
 
 
 def reconcile():
@@ -449,6 +449,7 @@ def pump_tk_thread():
         post_pending_load_day()
         admit_thread_inbound()
         loglogic.present_pending(present_traceline)
+    refresh_machine_status()
     if not g["shutting-down"]:
         g["tk-pump-scheduled"] = True
         g["root"].after(25, pump_tk_thread)
@@ -538,7 +539,7 @@ def handler_tk():
     frame = top()
     if "panel" in frame["data"]:
         panel_id = frame["data"]["panel"]
-        panel_type = memory["panels"][panel_id]["type"]
+        panel_type = panel_types[panel_id]
         loglogic.emit("STACK_UPDATED", state()["stack"], {"reason": f"panel route {panel_id} -> {panel_type}"})
         return panel_handlers[panel_type]()
     return handle_tk_system_operation()
@@ -588,6 +589,10 @@ def handler_mem():
         return "mem ready"
     if frame["op"] == "MEM_LOAD_DAY":
         return handle_mem_load_day()
+    if frame["op"] == "MEM_SET_PANEL_STATE":
+        return handle_mem_set_panel_state()
+    if frame["op"] == "MEM_SAVE_DAY":
+        return handle_mem_save_day()
     if frame["op"] == "MEM_EDIT_AND_SAVE":
         return handle_mem_edit_and_save()
     raise ValueError(f"unknown mem operation: {frame['op']}")
@@ -603,7 +608,7 @@ def handle_mem_load_day():
         instruction("DISK_READ_DAY")
         return SUSPENDED
     install_day_bundle(day_text, frame["child-result"])
-    set_register("day-record", deepcopy(memory["days"][day_text]))
+    set_register("day-record", make_day_bundle(day_text))
     return f"mem loaded {day_text}"
 
 
@@ -634,16 +639,48 @@ def apply_mem_edit(day_record, edit):
         raise ValueError(f"unknown mem edit: {edit['kind']}")
 
 
+def resolve_path(data, path):
+    """Follow a list of dictionary keys or list indexes and return the result."""
+    for key in path:
+        data = data[key]
+    return data
+
+
+def handle_mem_set_panel_state():
+    frame = top()
+    panel_id = state()["stack"]["registers"]["panel"]
+    panel_state = memory["panels"][panel_id]["state"]
+    path = frame["data"]["path"]
+    target_state = resolve_path(panel_state, path[:-1])
+    target_state[path[-1]] = frame["data"]["value"]
+    return "panel state set"
+
+
+def handle_mem_save_day():
+    frame = top()
+    data = frame["data"]
+    panel_id = state()["stack"]["registers"]["panel"]
+    day_text = memory["panels"][panel_id]["day"]
+    set_register("day", day_text)
+    if data.get("stage") is None:
+        data["stage"] = "waiting-for-disk-save"
+        target("disk")
+        instruction("DISK_WRITE_DAY", {"day-record": make_day_bundle(day_text)})
+        return SUSPENDED
+    return f"mem saved {day_text}: {frame['child-result']}"
+
+
 def handle_mem_edit_and_save():
     frame = top()
     data = frame["data"]
     day_text = state()["stack"]["registers"]["day"]
     if data.get("stage") is None:
         apply_mem_edit(memory["days"][day_text], data["edit"])
-        set_register("day-record", deepcopy(memory["days"][day_text]))
+        day_bundle = make_day_bundle(day_text)
+        set_register("day-record", deepcopy(day_bundle))
         data["stage"] = "waiting-for-disk-save"
         target("disk")
-        instruction("DISK_WRITE_DAY", {"day-record": make_day_bundle(day_text)})
+        instruction("DISK_WRITE_DAY", {"day-record": day_bundle})
         return SUSPENDED
     return f"mem edit saved: {frame['child-result']}"
 
@@ -771,8 +808,19 @@ def handle_when_orientation_text_is_submitted(event):
     post_tk_instruction("TK_SET_ORIENTATION", {"text": event.widget.get()})
 
 
-def handle_when_todo_toggle_button_is_clicked(panel_id):
-    post_panel_edit_stack({"kind": "toggle-todo", "day": current_day_text(), "panel": panel_id})
+def handle_when_todo_toggle_button_is_clicked(panel_id, desired_value):
+    loglogic.emit("EXTERNAL_EVENT", data={"message": "panel event: toggle-todo"})
+    begin_stack(next_stack_id("toggle-todo"), "ui")
+    set_register("panel", panel_id)
+    target("mem")
+    with serial("MEM_SET_AND_SAVE_PANEL"):
+        instruction(
+            "MEM_SET_PANEL_STATE",
+            {"path": ["items", 0, "done"], "value": desired_value},
+        )
+        instruction("MEM_SAVE_DAY")
+    end_stack()
+    post_stack()
 
 
 def handle_when_journal_entry_is_submitted(event, panel_id):
@@ -800,15 +848,13 @@ def clear_position_panel(position_id):
 
 
 def render_day_snapshot(day_record):
-    """Render the day layout and resolve each placed panel from top-level memory."""
+    """Render the day bundle carried by the stack; Tk never reads mem memory."""
     if g["headless"]:
         return
     widgets["date-label"].configure(text=day_record["day"])
     for position_id, panel_id in day_record["position-panel"].items():
-        panel_record = memory["panels"][panel_id]
-        if panel_record["day"] != day_record["day"]:
-            raise RuntimeError(f"panel {panel_id} does not belong to {day_record['day']}")
-        panels[panel_id] = {"type": panel_record["type"]}
+        panel_record = day_record["panels"][panel_id]
+        panel_types[panel_id] = panel_record["type"]
         clear_position_panel(position_id)
         position_widgets[position_id]["mounted-panel"] = panel_id
         build_panel_in_position(position_id, panel_id, panel_record)
@@ -834,7 +880,7 @@ def build_todo_panel_gui(panel_id, panel_record):
     record["status"].configure(text=("done" if item["done"] else "open") + ": " + item["text"])
     ttk.Button(
         record["content"], text="Toggle first item",
-        command=lambda: handle_when_todo_toggle_button_is_clicked(panel_id),
+        command=lambda: handle_when_todo_toggle_button_is_clicked(panel_id, not item["done"]),
     ).pack(anchor="w")
 
 
@@ -967,6 +1013,7 @@ def run_headless_tk_pump_until_complete():
                 break
             post_pending_load_day()
             loglogic.present_pending(present_traceline)
+        refresh_machine_status()
         if g["completed-stack-count"] >= 2:
             request_shutdown()
         time.sleep(0.01)

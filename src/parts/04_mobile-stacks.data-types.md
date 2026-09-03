@@ -153,16 +153,34 @@ MEM_EDIT_AND_SAVE frame
   - edit -- edit record
   - stage -- `str`: local resumption marker, for example `"waiting-for-disk-save"`
 
+MEM_SET_PANEL_STATE frame
+- data
+  - path -- `list[str | int]`: path within the selected panel's state
+  - value -- replacement value for the final path component
+- stack register
+  - panel -- `str`: selected panel id
+
+MEM_SAVE_DAY frame
+- stack register
+  - panel -- `str`: panel whose owning day is persisted
+
 DISK_WRITE_DAY frame
 - data
   - day-record -- complete persisted day bundle being written
 
 `MEM_LOAD_DAY` splits the disk bundle into `memory["days"][day]` and the
-top-level `memory["panels"]` records, then puts a copy of the day layout into
+top-level `memory["panels"]` records, then puts a copied day bundle into
 `state()["stack"]["registers"]["day-record"]`. `MEM_EDIT_AND_SAVE` refreshes
-that stack register after its in-memory edit and writes a reassembled bundle
-to disk. `TK_RENDER_DAY` reads the stack-local day layout; there is no
+that stack-register bundle after its in-memory edit and writes a reassembled
+bundle to disk. `TK_RENDER_DAY` reads the stack-local bundle; there is no
 `MEM_RETURN_DAY` frame in this version of the spike.
+
+`MEM_SET_PANEL_STATE` uses `resolve_path(data, path)` to locate the containing
+state record, then assigns the final path component. The TODO toggle uses
+`path == ["items", 0, "done"]`. `MEM_SAVE_DAY` derives the day from the
+selected panel's reverse `day` link, updates the stack's `day` register, then
+writes that day bundle through disk. The TODO toggle stack is
+mem-only after its UI callback; it does not perform a Tk render.
 
 TK_PANEL_EVENT frame
 - data
@@ -321,6 +339,9 @@ and panel ids; a panel owns its type, mutable state, and reverse `day` link.
 The intended invariant is: if a day position references panel `P`, then
 `memory["panels"][P]["day"]` is that day.
 
+Tk does not consult this authoritative collection. Mem puts a copied day
+bundle into the traveling stack's `day-record` register for Tk rendering.
+
 ## `disk_store` — simulated disk-owned records
 
 ```text
@@ -379,10 +400,9 @@ position_widgets
 ```
 
 ```text
-panels
+panel_types
 - key -- `str`: panel id
-- value -- panel metadata
-  - type -- `"TODO" | "JOURNAL"`
+- value -- `"TODO" | "JOURNAL"`: Tk-cached panel type
 ```
 
 ```text
@@ -394,9 +414,10 @@ panel_widgets
   - text-var -- `tk.StringVar` for JOURNAL panels, when applicable
 ```
 
-These collections belong to Tk. The `panels` mapping is used by `handler_tk()`
-as presentation metadata. The authoritative panel type is resolved directly
-from `memory["panels"]` when Tk routes a panel-targeted frame or renders a day.
+These collections belong to Tk. The `panel_types` mapping is used by
+`handler_tk()` for panel-type routing. `render_day_snapshot()` fills that cache
+from the day bundle in the current stack register; Tk never consults
+authoritative `memory`.
 
 ## `panel_handlers`
 
