@@ -155,18 +155,6 @@ def make_instruction(machine_name, operation, data=None):
     return {"machine": machine_name, "op": operation, "data": {} if data is None else data}
 
 
-def make_serial_instruction(machine_name, name, steps):
-    # {"machine": "<target>", "op": "SERIAL",
-    #  "data": {"name": "<readable procedure>", "steps": [<instructions>],
-    #           "ip": <next instruction index>},
-    #  "child-result": <most recent child result>}
-    return {
-        "machine": machine_name,
-        "op": SERIAL,
-        "data": {"name": name, "steps": steps, "ip": 0},
-    }
-
-
 def make_stack(stack_id, kind, root_instruction):
     """Make a new, inactive stack with its first frame already present."""
     # {"id": "<readable stack id>", "kind": "startup" | "ui",
@@ -217,13 +205,13 @@ def instruction(operation, data=None):
         raise RuntimeError("instruction requires a stack under construction")
     if builder["target"] is None:
         raise RuntimeError("instruction requires a current construction target")
-    item = make_instruction(builder["target"], operation, data)
+    frame = make_instruction(builder["target"], operation, data)
     if builder["serials"]:
-        builder["serials"][-1]["steps"].append(item)
+        builder["serials"][-1]["steps"].append(frame)
         return
     if builder["stack"]["frames"]:
         raise RuntimeError("a stack under construction can have only one root instruction")
-    builder["stack"]["frames"].append(item)
+    builder["stack"]["frames"].append(frame)
 
 
 def end_serial(name):
@@ -235,13 +223,17 @@ def end_serial(name):
     if serial["name"] != name:
         raise RuntimeError(f"end_serial expected {serial['name']!r}, not {name!r}")
     builder["serials"].pop()
-    item = make_serial_instruction(serial["target"], serial["name"], serial["steps"])
+    frame = {
+        "machine": serial["target"],
+        "op": SERIAL,
+        "data": {"name": serial["name"], "steps": serial["steps"], "ip": 0},
+    }
     if builder["serials"]:
-        builder["serials"][-1]["steps"].append(item)
+        builder["serials"][-1]["steps"].append(frame)
         return
     if builder["stack"]["frames"]:
         raise RuntimeError("a stack under construction can have only one root instruction")
-    builder["stack"]["frames"].append(item)
+    builder["stack"]["frames"].append(frame)
 
 
 @contextmanager
