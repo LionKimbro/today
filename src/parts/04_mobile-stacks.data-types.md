@@ -19,6 +19,7 @@ g
 - tk-pump-scheduled -- `bool`: whether a Tk scheduler callback is pending
 - next-stack-number -- `int`: source for readable new stack ids
 - completed-stack-count -- `int`: count of completed UI stacks
+- startup-load-day -- `str | None`: initial day request deferred until tk boot ends
 ```
 
 `g` contains central, fixed-shape program facts. It is not the storage for
@@ -33,11 +34,13 @@ threads
   - in-queue -- `queue.Queue`: cross-thread delivery packets for this thread
   - machine-names -- `list[str]`: ids of machines run by this thread
   - current-machine -- `str | None`: register naming the machine now running
-  - stack -- stack record | `None`: register holding the stack now running
-  - builder -- construction-register record, independent from runtime execution
-    - stack -- stack record | `None`: stack currently being constructed here
-    - target -- `str | None`: target machine for the next built instruction
+  - stack -- stack record | `None`: the one stack this thread currently holds
+  - stack-phase -- `None | "building" | "executing"`
+    - building -- the current stack is being assembled
+    - executing -- the scheduler owns this stack for one reconciliation quantum
+  - builder -- construction-register record
     - serials -- `list[open serial]`: nested serial procedures being built
+  - target -- `str | None`: target machine for the next created instruction
   - next-machine-index -- `int`: round-robin starting position for machines
   - thread-type -- `"system" | "worker"`: Tk main thread or worker thread
   - entry-fn -- function: procedure used to run a worker thread
@@ -51,17 +54,21 @@ The current physical thread finds its own thread-state record with:
 state() == threads[threading.current_thread().name]
 ```
 
-`state()["current-machine"]` and `state()["stack"]` are temporary registers.
-They are set before one reconciliation quantum and cleared afterward. They
-are not cross-thread communication channels.
+`state()["stack"]` holds at most one stack at a time, but that is only the
+thread's current working register. Its inbound queue and each hosted machine's
+run queue can hold any number of other stacks waiting to run. `stack-phase`
+explicitly says whether the current stack is being built or is executing.
+After `end_stack()`, the completed stack remains current with phase `None`
+until `post_stack()` transfers ownership to a queue. Both registers are then
+cleared; execution also clears them after its quantum ends.
 
-`state()["builder"]` is a separate, thread-local construction context. Its
-`stack` is not executing and never travels through queues. Each physical
-thread has its own independent builder registers.
+`state()["builder"]` contains only construction cursor state. Each physical
+thread has its own independent serial cursor. `state()["target"]` is a common
+register used for both construction and live stack manipulation.
 
-`set_register(key, value)` writes into the builder stack's `registers` when a
-builder stack is active; otherwise it writes into the executing stack's
-`registers`.
+`set_register(key, value)` always writes into
+`state()["stack"]["registers"]`. The explicit `stack-phase` explains whether
+that current stack is being built or executed.
 
 ## `machines` — semantic execution machines
 
@@ -148,13 +155,14 @@ MEM_EDIT_AND_SAVE frame
 
 DISK_WRITE_DAY frame
 - data
-  - day-record -- complete day record being persisted
+  - day-record -- complete persisted day bundle being written
 
-`MEM_LOAD_DAY` copies the disk result into both `memory["days"][day]` and
+`MEM_LOAD_DAY` splits the disk bundle into `memory["days"][day]` and the
+top-level `memory["panels"]` records, then puts a copy of the day layout into
 `state()["stack"]["registers"]["day-record"]`. `MEM_EDIT_AND_SAVE` refreshes
-that stack register after its in-memory edit. `TK_RENDER_DAY` reads the
-stack-local `day-record`; there is no `MEM_RETURN_DAY` frame in this version
-of the spike.
+that stack register after its in-memory edit and writes a reassembled bundle
+to disk. `TK_RENDER_DAY` reads the stack-local day layout; there is no
+`MEM_RETURN_DAY` frame in this version of the spike.
 
 TK_PANEL_EVENT frame
 - data
@@ -216,8 +224,10 @@ pushed and the serial frame itself can complete using its `child-result`.
 
 ## Progressive construction context
 
-The runtime also has a construction-only API. It is not yet used by the
-existing stack-building routines; that conversion is a later refactor step.
+Each thread uses one `state()["stack"]` register for both construction and
+execution. `begin_stack()` creates an inactive stack there and sets
+`state()["stack-phase"]` to `"building"`; construction fails if that thread
+already holds a stack. `builder` contains only the nested serial cursor.
 
 ```python
 begin_stack(stack_id, kind)
@@ -227,17 +237,36 @@ begin_serial("FOO")
 instruction("...")
 end_serial("FOO")
 
-stack = end_stack()
+end_stack()
+post_stack()
 ```
 
-`target()` selects the target machine for subsequently built instructions.
+`target()` selects the target machine for subsequently created instructions,
+whether a stack is being built or a live stack is being executed.
 `begin_serial()` captures that target for the serial it opens. Nested serials
 are represented by `state()["builder"]["serials"]`; closing one attaches it
 to the enclosing serial, or makes it the new stack's sole root instruction.
-`instruction()` likewise appends to the innermost serial, or creates a root
-primitive instruction when no serial is open. `end_stack()` requires every
-serial to be closed, returns the completed inactive stack, and clears all
-three builder registers.
+`instruction()` appends to the innermost serial, or creates a root primitive
+instruction when no serial is open. When `stack-phase` is `"executing"`,
+`instruction()` instead pushes a live frame on `state()["stack"]`.
+`end_stack()` requires every serial to be closed and exactly one root frame,
+then clears the `"building"` phase. It does not return or clear the stack.
+
+`post_stack()` requires a current stack with no active phase: the state left
+by `end_stack()`. It reads the root frame's machine, delivers the stack to
+that machine's hosting thread, and then clears the caller's current `stack`
+and `stack-phase` registers. The destination is therefore contained in the
+stack; the caller supplies no stack or machine argument.
+
+The same surface language also expands a live stack:
+
+```python
+target("disk")
+instruction("DISK_READ_DAY")
+```
+
+With `stack-phase == "executing"`, this creates the instruction template and
+pushes its live frame onto `state()["stack"]`.
 
 `serial(name)` is optional syntax sugar only:
 
@@ -263,24 +292,34 @@ with serial("TK_LOAD_AND_RENDER_DAY"):
         instruction(YIELD)
     target("tk")
     instruction("TK_RENDER_DAY")
-stack = end_stack()
+end_stack()
+post_stack()
 ```
 
 `make_panel_edit_stack()` follows the same pattern, adding its optional Tk
 panel event before its mem edit transaction.
 
-## `memory` — mem-owned authoritative day records
+## `memory` — mem-owned authoritative day and panel records
 
 ```text
 memory
 - days -- dict
   - key -- `str`: ISO day text, for example `"2026-09-02"`
-  - value -- complete day record
+  - value -- day layout record
+    - day -- `str`: ISO date text
+    - position-panel -- dict mapping positions to panel ids
+- panels -- dict
+  - key -- `str`: panel id
+  - value -- panel record
+    - day -- `str`: owning ISO day text
+    - type -- `"TODO" | "JOURNAL"`
+    - state -- type-specific mutable panel state
 ```
 
-Only `mem` primitive operations mutate this collection. Tk receives a deep
-copy of a day record as a returned snapshot; Tk does not directly read or
-mutate `memory`.
+Only `mem` primitive operations mutate this collection. A day owns its layout
+and panel ids; a panel owns its type, mutable state, and reverse `day` link.
+The intended invariant is: if a day position references panel `P`, then
+`memory["panels"][P]["day"]` is that day.
 
 ## `disk_store` — simulated disk-owned records
 
@@ -288,12 +327,16 @@ mutate `memory`.
 disk_store
 - days -- dict
   - key -- `str`: ISO day text
-  - value -- complete persisted day record
+  - value -- persisted day bundle
+    - day -- day layout fields
+    - panels -- panel records belonging to that day
 ```
 
 This is an in-process simulation, not a filesystem. `DISK_READ_DAY` returns a
-deep copy of a stored record; `DISK_WRITE_DAY` replaces the stored record with
-a deep copy. No disk path or M1 persistence format exists in this spike.
+deep copy of a stored day bundle; `DISK_WRITE_DAY` replaces the stored bundle
+with a deep copy. `install_day_bundle()` splits a bundle into the authoritative
+top-level memory collections; `make_day_bundle()` reassembles one for writing.
+No disk path or M1 persistence format exists in this spike.
 
 ## Day record
 
@@ -303,13 +346,11 @@ day record
 - position-panel -- dict
   - key -- `str`: position id, currently `"position-1"` or `"position-2"`
   - value -- `str`: mounted panel id
-- panels -- dict
-  - key -- `str`: panel id
-  - value -- panel record
 ```
 
 ```text
 panel record
+- day -- `str`: owning ISO day text
 - type -- `"TODO" | "JOURNAL"`
 - state -- type-specific panel state
   - TODO state
@@ -354,7 +395,8 @@ panel_widgets
 ```
 
 These collections belong to Tk. The `panels` mapping is used by `handler_tk()`
-to route a panel-targeted Tk frame to the handler for that panel's type.
+as presentation metadata. The authoritative panel type is resolved directly
+from `memory["panels"]` when Tk routes a panel-targeted frame or renders a day.
 
 ## `panel_handlers`
 

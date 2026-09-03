@@ -40,6 +40,8 @@ YIELD = "YIELD"
 STARTUP = "STARTUP"
 SUSPENDED = "SUSPENDED"
 STOP = "STOP"
+BUILDING = "building"
+EXECUTING = "executing"
 
 TODO_PANEL = "TODO"
 JOURNAL_PANEL = "JOURNAL"
@@ -59,17 +61,20 @@ g = {
     "tk-pump-scheduled": False,
     "next-stack-number": 1,
     "completed-stack-count": 0,
+    "startup-load-day": None,
 }
 
-# Physical execution contexts.  ``current-machine`` and ``stack`` are
-# thread-local registers stored in the record for the thread currently running:
+# Physical execution contexts.  The stack register names the one stack this
+# thread is currently considering, whether building or executing.
+# A thread's inbound queue and its machines' run queues can still hold many
+# other stacks waiting for their own turn:
 # {"<thread-name>": {"in-queue": Queue(<delivery records>),
 #                     "machine-names": ["<machine-name>", ...],
 #                     "current-machine": "<machine-name>" | None,
 #                     "stack": <stack> | None,
-#                     "builder": {"stack": <stack under construction> | None,
-#                                 "target": "<machine-name>" | None,
-#                                 "serials": [<open serial records>]},
+#                     "stack-phase": None | "building" | "executing",
+#                     "builder": {"serials": [<open serial records>]},
+#                     "target": "<machine-name>" | None,
 #                     "next-machine-index": <round-robin index>,
 #                     "thread-type": "system" | "worker",
 #                     "entry-fn": <thread procedure>,
@@ -107,8 +112,10 @@ panel_widgets = {}
 panel_handlers = {}
 
 # Authoritative memory, mutated only by mem primitive operations:
-# {"days": {"YYYY-MM-DD": <complete day record>}}
-memory = {"days": {}}
+# {"days": {"YYYY-MM-DD": <day layout record>},
+#  "panels": {"<panel-id>": {"day": "YYYY-MM-DD", "type": <type>,
+#                             "state": <panel state>}}}
+memory = {"days": {}, "panels": {}}
 
 # Simulated disk records, mutated only by disk primitive operations:
 # {"days": {"YYYY-MM-DD": <complete persisted day record>}}
@@ -129,14 +136,10 @@ def top():
 
 
 def set_register(key, value):
-    """Write named state into the executing stack or the stack being built."""
-    builder_stack = state()["builder"]["stack"]
-    if builder_stack is not None:
-        stack = builder_stack
-    else:
-        stack = state()["stack"]
+    """Write named state into this thread's one current stack."""
+    stack = state()["stack"]
     if stack is None:
-        raise RuntimeError("set_register requires a current or building stack")
+        raise RuntimeError("set_register requires a current stack")
     stack["registers"][key] = value
 
 
@@ -146,13 +149,6 @@ def present_traceline(line):
     if not g["shutting-down"] and widgets.get("trace") is not None:
         widgets["trace"].insert("end", line + "\n")
         widgets["trace"].see("end")
-
-
-def make_instruction(machine_name, operation, data=None):
-    """Make an inert instruction template; it becomes a frame only when pushed."""
-    # {"machine": "<target machine>", "op": "<operation>",
-    #  "data": {<operation-specific fields>}}
-    return {"machine": machine_name, "op": operation, "data": {} if data is None else data}
 
 
 def make_stack(stack_id, kind, root_instruction):
@@ -170,53 +166,62 @@ def make_stack(stack_id, kind, root_instruction):
 
 
 def begin_stack(stack_id, kind):
-    """Open one stack in this thread's independent construction registers."""
+    """Create this thread's one current stack in its building phase."""
     builder = state()["builder"]
-    if builder["stack"] is not None:
-        raise RuntimeError("this thread is already constructing a stack")
-    builder["stack"] = {"id": stack_id, "kind": kind, "registers": {}, "frames": []}
-    builder["target"] = None
+    if state()["stack"] is not None or state()["stack-phase"] is not None:
+        raise RuntimeError("this thread is already considering a stack")
+    state()["stack"] = {"id": stack_id, "kind": kind, "registers": {}, "frames": []}
+    state()["stack-phase"] = BUILDING
     builder["serials"] = []
 
 
 def target(machine_name):
-    """Set the target machine used by subsequently constructed instructions."""
-    if state()["builder"]["stack"] is None:
-        raise RuntimeError("target requires a stack under construction")
+    """Set the target machine used by subsequently created instructions."""
     if machine_name not in machines:
-        raise ValueError(f"unknown construction target: {machine_name}")
-    state()["builder"]["target"] = machine_name
+        raise ValueError(f"unknown target machine: {machine_name}")
+    state()["target"] = machine_name
 
 
 def begin_serial(name):
     """Open a serial procedure at the builder's current target machine."""
     builder = state()["builder"]
-    if builder["stack"] is None:
-        raise RuntimeError("begin_serial requires a stack under construction")
-    if builder["target"] is None:
+    if state()["stack-phase"] != BUILDING:
+        raise RuntimeError("begin_serial requires the building stack phase")
+    if state()["target"] is None:
         raise RuntimeError("begin_serial requires a current construction target")
-    builder["serials"].append({"name": name, "target": builder["target"], "steps": []})
+    builder["serials"].append({"name": name, "target": state()["target"], "steps": []})
 
 
 def instruction(operation, data=None):
-    """Add one instruction at the builder's current target machine."""
+    """Build an instruction or push its live frame at the current target."""
     builder = state()["builder"]
-    if builder["stack"] is None:
-        raise RuntimeError("instruction requires a stack under construction")
-    if builder["target"] is None:
-        raise RuntimeError("instruction requires a current construction target")
-    frame = make_instruction(builder["target"], operation, data)
+    if state()["target"] is None:
+        raise RuntimeError("instruction requires a current target")
+    # {"machine": "<target machine>", "op": "<operation>",
+    #  "data": {<operation-specific fields>}}
+    frame = {
+        "machine": state()["target"],
+        "op": operation,
+        "data": {} if data is None else data,
+    }
+    if state()["stack-phase"] == EXECUTING:
+        push_frame(frame)
+        return
+    if state()["stack-phase"] != BUILDING:
+        raise RuntimeError("instruction requires the building or executing stack phase")
     if builder["serials"]:
         builder["serials"][-1]["steps"].append(frame)
         return
-    if builder["stack"]["frames"]:
+    if state()["stack"]["frames"]:
         raise RuntimeError("a stack under construction can have only one root instruction")
-    builder["stack"]["frames"].append(frame)
+    state()["stack"]["frames"].append(frame)
 
 
 def end_serial(name):
     """Close the named innermost serial and add it to its enclosing context."""
     builder = state()["builder"]
+    if state()["stack-phase"] != BUILDING:
+        raise RuntimeError("end_serial requires the building stack phase")
     if not builder["serials"]:
         raise RuntimeError("end_serial requires an open serial")
     serial = builder["serials"][-1]
@@ -231,9 +236,9 @@ def end_serial(name):
     if builder["serials"]:
         builder["serials"][-1]["steps"].append(frame)
         return
-    if builder["stack"]["frames"]:
+    if state()["stack"]["frames"]:
         raise RuntimeError("a stack under construction can have only one root instruction")
-    builder["stack"]["frames"].append(frame)
+    state()["stack"]["frames"].append(frame)
 
 
 @contextmanager
@@ -247,19 +252,17 @@ def serial(name):
 
 
 def end_stack():
-    """Finish the current construction and clear this thread's builder registers."""
+    """Validate construction and leave the completed stack in the stack register."""
     builder = state()["builder"]
-    stack = builder["stack"]
-    if stack is None:
-        raise RuntimeError("end_stack requires a stack under construction")
+    stack = state()["stack"]
+    if state()["stack-phase"] != BUILDING or stack is None:
+        raise RuntimeError("end_stack requires the building stack phase")
     if builder["serials"]:
         raise RuntimeError("end_stack requires every serial to be closed")
     if len(stack["frames"]) != 1:
         raise RuntimeError("end_stack requires exactly one root instruction")
-    builder["stack"] = None
-    builder["target"] = None
     builder["serials"] = []
-    return stack
+    state()["stack-phase"] = None
 
 
 def push_frame(instruction):
@@ -387,7 +390,7 @@ def reconcile():
 
 
 def run_one_machine_on_current_thread():
-    """Run one fair quantum and establish the two thread working registers."""
+    """Run one fair quantum and establish the current executing stack registers."""
     thread_state = state()
     machine_names = thread_state["machine-names"]
     for offset in range(len(machine_names)):
@@ -399,10 +402,12 @@ def run_one_machine_on_current_thread():
         thread_state["next-machine-index"] = (index + 1) % len(machine_names)
         thread_state["current-machine"] = machine_name
         thread_state["stack"] = machine["run-queue"].popleft()
+        thread_state["stack-phase"] = EXECUTING
         try:
             reconcile()
         finally:
             thread_state["stack"] = None
+            thread_state["stack-phase"] = None
             thread_state["current-machine"] = None
         return True
     return False
@@ -441,6 +446,7 @@ def pump_tk_thread():
     for _ in range(3):
         if not run_one_machine_on_current_thread():
             break
+        post_pending_load_day()
         admit_thread_inbound()
         loglogic.present_pending(present_traceline)
     if not g["shutting-down"]:
@@ -458,8 +464,17 @@ def current_day_text():
     return g["selected-day"].isoformat()
 
 
+def post_pending_load_day():
+    """Post the startup day request after the boot stack releases the Tk thread."""
+    day_text = g["startup-load-day"]
+    if day_text is None or state()["stack"] is not None:
+        return
+    g["startup-load-day"] = None
+    post_load_day_stack(day_text)
+
+
 def make_blank_day(day_text):
-    """Make the one coherent record that disk persists and mem owns after loading."""
+    """Make one persisted day bundle; mem splits it into days and panels on load."""
     todo_id = f"panel-{day_text}-todo-1"
     journal_id = f"panel-{day_text}-journal-1"
     alternate_journal_id = f"panel-{day_text}-journal-2"
@@ -488,12 +503,42 @@ def make_blank_day(day_text):
     }
 
 
+def install_day_bundle(day_text, day_bundle):
+    """Install one persisted day bundle into the separate mem day and panel records."""
+    day_record = deepcopy(day_bundle)
+    panel_records = day_record.pop("panels")
+    if day_record["day"] != day_text:
+        raise ValueError(f"day bundle key {day_text} does not match {day_record['day']}")
+    for panel_id, panel_record in list(memory["panels"].items()):
+        if panel_record["day"] == day_text:
+            memory["panels"].pop(panel_id)
+    memory["days"][day_text] = day_record
+    for panel_id, panel_record in panel_records.items():
+        panel = deepcopy(panel_record)
+        panel["day"] = day_text
+        memory["panels"][panel_id] = panel
+    for panel_id in day_record["position-panel"].values():
+        if memory["panels"][panel_id]["day"] != day_text:
+            raise RuntimeError(f"panel {panel_id} is not owned by {day_text}")
+
+
+def make_day_bundle(day_text):
+    """Copy one day and all of its top-level panels into a persisted day bundle."""
+    day_bundle = deepcopy(memory["days"][day_text])
+    day_bundle["panels"] = {
+        panel_id: deepcopy(panel_record)
+        for panel_id, panel_record in memory["panels"].items()
+        if panel_record["day"] == day_text
+    }
+    return day_bundle
+
+
 def handler_tk():
     """Tk machine handler; panel-type routing happens after machine routing."""
     frame = top()
     if "panel" in frame["data"]:
         panel_id = frame["data"]["panel"]
-        panel_type = panels[panel_id]["type"]
+        panel_type = memory["panels"][panel_id]["type"]
         loglogic.emit("STACK_UPDATED", state()["stack"], {"reason": f"panel route {panel_id} -> {panel_type}"})
         return panel_handlers[panel_type]()
     return handle_tk_system_operation()
@@ -504,7 +549,7 @@ def handle_tk_system_operation():
     if frame["op"] == STARTUP:
         if not g["headless"]:
             build_tk_interface_after_startup()
-        post_load_day_stack(current_day_text())
+        g["startup-load-day"] = current_day_text()
         return "tk ready"
     if frame["op"] == "TK_RENDER_DAY":
         day_snapshot = state()["stack"]["registers"]["day-record"]
@@ -554,31 +599,36 @@ def handle_mem_load_day():
     day_text = state()["stack"]["registers"]["day"]
     if data.get("stage") is None:
         data["stage"] = "waiting-for-disk"
-        push_frame(make_instruction("disk", "DISK_READ_DAY"))
+        target("disk")
+        instruction("DISK_READ_DAY")
         return SUSPENDED
-    memory["days"][day_text] = deepcopy(frame["child-result"])
+    install_day_bundle(day_text, frame["child-result"])
     set_register("day-record", deepcopy(memory["days"][day_text]))
     return f"mem loaded {day_text}"
 
 
 def apply_mem_edit(day_record, edit):
     if edit["kind"] == "toggle-todo":
-        item = day_record["panels"][edit["panel"]]["state"]["items"][0]
+        item = memory["panels"][edit["panel"]]["state"]["items"][0]
         item["done"] = not item["done"]
     elif edit["kind"] == "edit-journal":
-        day_record["panels"][edit["panel"]]["state"]["text"] = edit["text"]
+        memory["panels"][edit["panel"]]["state"]["text"] = edit["text"]
     elif edit["kind"] == "replace-panel":
         position = edit["position"]
         current_panel = day_record["position-panel"][position]
-        current_type = day_record["panels"][current_panel]["type"]
-        candidates = day_record["panels"]
+        current_type = memory["panels"][current_panel]["type"]
+        candidates = memory["panels"]
         if current_type == TODO_PANEL:
             day_record["position-panel"][position] = next(
-                panel_id for panel_id, panel in candidates.items() if panel["type"] == JOURNAL_PANEL
+                panel_id
+                for panel_id, panel in candidates.items()
+                if panel["day"] == day_record["day"] and panel["type"] == JOURNAL_PANEL
             )
         else:
             day_record["position-panel"][position] = next(
-                panel_id for panel_id, panel in candidates.items() if panel["type"] == TODO_PANEL
+                panel_id
+                for panel_id, panel in candidates.items()
+                if panel["day"] == day_record["day"] and panel["type"] == TODO_PANEL
             )
     else:
         raise ValueError(f"unknown mem edit: {edit['kind']}")
@@ -592,13 +642,8 @@ def handle_mem_edit_and_save():
         apply_mem_edit(memory["days"][day_text], data["edit"])
         set_register("day-record", deepcopy(memory["days"][day_text]))
         data["stage"] = "waiting-for-disk-save"
-        push_frame(
-            make_instruction(
-                "disk",
-                "DISK_WRITE_DAY",
-                {"day-record": deepcopy(memory["days"][day_text])},
-            )
-        )
+        target("disk")
+        instruction("DISK_WRITE_DAY", {"day-record": make_day_bundle(day_text)})
         return SUSPENDED
     return f"mem edit saved: {frame['child-result']}"
 
@@ -631,7 +676,7 @@ def make_load_day_stack(stack_id, day_text):
             instruction(YIELD)
         target("tk")
         instruction("TK_RENDER_DAY")
-    return end_stack()
+    end_stack()
 
 
 def make_panel_edit_stack(stack_id, edit):
@@ -650,19 +695,26 @@ def make_panel_edit_stack(stack_id, edit):
             instruction(YIELD)
         target("tk")
         instruction("TK_RENDER_DAY")
-    return end_stack()
+    end_stack()
 
 
-def post_stack_to_tk(stack):
-    source_name = state()["current-machine"] or "user"
-    target_thread = machines["tk"]["thread"]
+def post_stack():
+    """Submit the completed current stack to its root frame's target machine."""
+    stack = state()["stack"]
+    if state()["stack-phase"] is not None or stack is None:
+        raise RuntimeError("post_stack requires a completed current stack")
+    target_machine = stack["frames"][0]["machine"]
+    target_thread = machines[target_machine]["thread"]
+    source_name = "startup" if stack["kind"] == "startup" else state()["current-machine"] or "user"
     loglogic.emit("STACK_CREATED", stack, {"initial-owner": source_name})
     loglogic.emit(
         "STACK_SUBMITTED",
         stack,
-        {"source": source_name, "to-machine": "tk", "to-thread": target_thread},
+        {"source": source_name, "to-machine": target_machine, "to-thread": target_thread},
     )
-    threads[target_thread]["in-queue"].put(make_delivery("tk", stack))
+    threads[target_thread]["in-queue"].put(make_delivery(target_machine, stack))
+    state()["stack"] = None
+    state()["stack-phase"] = None
     schedule_tk_pump()
 
 
@@ -674,18 +726,24 @@ def next_stack_id(label):
 
 def post_load_day_stack(day_text):
     loglogic.emit("EXTERNAL_EVENT", data={"message": f"request load day {day_text}"})
-    post_stack_to_tk(make_load_day_stack(next_stack_id("load-day"), day_text))
+    make_load_day_stack(next_stack_id("load-day"), day_text)
+    post_stack()
 
 
 def post_panel_edit_stack(edit):
     loglogic.emit("EXTERNAL_EVENT", data={"message": f"panel event: {edit['kind']}"})
-    post_stack_to_tk(make_panel_edit_stack(next_stack_id(edit["kind"]), edit))
+    make_panel_edit_stack(next_stack_id(edit["kind"]), edit)
+    post_stack()
 
 
 def post_tk_instruction(operation, data):
     if operation != "TK_HEARTBEAT":
         loglogic.emit("EXTERNAL_EVENT", data={"message": f"request {operation}"})
-    post_stack_to_tk(make_stack(next_stack_id(operation.lower()), "ui", make_instruction("tk", operation, data)))
+    begin_stack(next_stack_id(operation.lower()), "ui")
+    target("tk")
+    instruction(operation, data)
+    end_stack()
+    post_stack()
 
 
 def refresh_machine_status():
@@ -742,16 +800,18 @@ def clear_position_panel(position_id):
 
 
 def render_day_snapshot(day_record):
-    """Tk receives a snapshot; it does not read or mutate ``memory`` directly."""
+    """Render the day layout and resolve each placed panel from top-level memory."""
     if g["headless"]:
         return
     widgets["date-label"].configure(text=day_record["day"])
-    for panel_id, panel_record in day_record["panels"].items():
-        panels[panel_id] = {"type": panel_record["type"]}
     for position_id, panel_id in day_record["position-panel"].items():
+        panel_record = memory["panels"][panel_id]
+        if panel_record["day"] != day_record["day"]:
+            raise RuntimeError(f"panel {panel_id} does not belong to {day_record['day']}")
+        panels[panel_id] = {"type": panel_record["type"]}
         clear_position_panel(position_id)
         position_widgets[position_id]["mounted-panel"] = panel_id
-        build_panel_in_position(position_id, panel_id, day_record["panels"][panel_id])
+        build_panel_in_position(position_id, panel_id, panel_record)
 
 
 def build_panel_in_position(position_id, panel_id, panel_record):
@@ -844,19 +904,19 @@ def initialize_threads_and_machines():
     # The registry values are data, shown in the dictionary-shape comments above.
     threads["tk"] = {
         "in-queue": Queue(), "machine-names": ["tk"], "current-machine": None,
-        "stack": None, "builder": {"stack": None, "target": None, "serials": []},
+        "stack": None, "stack-phase": None, "builder": {"serials": []}, "target": None,
         "next-machine-index": 0, "thread-type": "system",
         "entry-fn": pump_tk_thread, "thread-obj": None, "stop-requested": False,
     }
     threads["mem"] = {
         "in-queue": Queue(), "machine-names": ["mem"], "current-machine": None,
-        "stack": None, "builder": {"stack": None, "target": None, "serials": []},
+        "stack": None, "stack-phase": None, "builder": {"serials": []}, "target": None,
         "next-machine-index": 0, "thread-type": "worker",
         "entry-fn": run_worker_thread, "thread-obj": None, "stop-requested": False,
     }
     threads["disk"] = {
         "in-queue": Queue(), "machine-names": ["disk"], "current-machine": None,
-        "stack": None, "builder": {"stack": None, "target": None, "serials": []},
+        "stack": None, "stack-phase": None, "builder": {"serials": []}, "target": None,
         "next-machine-index": 0, "thread-type": "worker",
         "entry-fn": run_worker_thread, "thread-obj": None, "stop-requested": False,
     }
@@ -869,17 +929,11 @@ def initialize_threads_and_machines():
 
 def post_startup_stacks():
     for machine_name in machines:
-        startup = make_stack(
-            f"boot-{machine_name}", "startup", make_instruction(machine_name, STARTUP)
-        )
-        target_thread = machines[machine_name]["thread"]
-        loglogic.emit("STACK_CREATED", startup, {"initial-owner": "startup"})
-        loglogic.emit(
-            "STACK_SUBMITTED",
-            startup,
-            {"source": "startup", "to-machine": machine_name, "to-thread": target_thread},
-        )
-        threads[target_thread]["in-queue"].put(make_delivery(machine_name, startup))
+        begin_stack(f"boot-{machine_name}", "startup")
+        target(machine_name)
+        instruction(STARTUP)
+        end_stack()
+        post_stack()
 
 
 def start_worker_threads():
@@ -911,6 +965,7 @@ def run_headless_tk_pump_until_complete():
         for _ in range(3):
             if not run_one_machine_on_current_thread():
                 break
+            post_pending_load_day()
             loglogic.present_pending(present_traceline)
         if g["completed-stack-count"] >= 2:
             request_shutdown()
