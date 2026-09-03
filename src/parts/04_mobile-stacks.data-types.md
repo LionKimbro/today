@@ -235,6 +235,16 @@ primitive instruction when no serial is open. `end_stack()` requires every
 serial to be closed, returns the completed inactive stack, and clears all
 three builder registers.
 
+`serial(name)` is optional syntax sugar only:
+
+```python
+with serial("FOO"):
+    instruction("...")
+```
+
+It calls `begin_serial("FOO")` on entry and `end_serial("FOO")` on exit. It
+adds no construction state or execution behavior beyond those primitives.
+
 ## `memory` — mem-owned authoritative day records
 
 ```text

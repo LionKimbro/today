@@ -22,6 +22,7 @@ Use ``--headless`` to verify the same logical scheduler without a display.
 """
 
 from collections import deque
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, timedelta
 from queue import Empty, Queue
@@ -229,6 +230,16 @@ def end_serial(name):
     if builder["stack"]["frames"]:
         raise RuntimeError("a stack under construction can have only one root instruction")
     builder["stack"]["frames"].append(item)
+
+
+@contextmanager
+def serial(name):
+    """Use a ``with`` block as shorthand for begin_serial/end_serial."""
+    begin_serial(name)
+    try:
+        yield
+    finally:
+        end_serial(name)
 
 
 def end_stack():
