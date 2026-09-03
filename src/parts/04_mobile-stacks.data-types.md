@@ -185,7 +185,7 @@ bundle to disk. `TK_RENDER_DAY` reads the stack-local bundle; there is no
 `SET_TODO_STATE` is the Tk/control-facing semantic instruction. Tk/control
 binds the selected panel in the stack register and supplies the item plus
 explicit desired `done` value; it never asks mem to toggle or infer the
-opposite state. Mem drops the semantic frame, then pushes the private
+opposite state. Mem rewrites the semantic frame in place as the private
 `MEM_SET_AND_SAVE_TODO` serial. Its steps are `MEM_SET_PANEL_STATE` with
 `path == ["items", item, "done"]`, then `MEM_SAVE_DAY`.
 `MEM_SET_PANEL_STATE` uses `resolve_path(data, path)` to locate the containing
@@ -298,6 +298,18 @@ instruction("DISK_READ_DAY")
 
 With `stack-phase == "executing"`, this creates the instruction template and
 pushes its live frame onto `state()["stack"]`.
+
+`begin_replacement(name)` and `end_replacement(name)` are the complementary
+runtime rewrite operations. Begin temporarily changes `stack-phase` from
+`"executing"` to `"building"` and opens an ordinary serial through
+`begin_serial(name)`. The live semantic frame remains on top of
+`state()["stack"]` while normal `target()` and `instruction()` calls add steps
+through the existing `builder["serials"]` cursor. End uses `close_serial(name)`
+to obtain that completed serial frame, installs it over the still-current top
+frame, and restores `"executing"`. Reconciliation sees that the handler's
+original frame is no longer top, so it continues immediately: the original
+frame is gone, no child result is produced, and the replacement serial expands
+without suspension.
 
 `serial(name)` is optional syntax sugar only:
 

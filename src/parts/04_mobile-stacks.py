@@ -193,6 +193,19 @@ def begin_serial(name):
     builder["serials"].append({"name": name, "target": state()["target"], "steps": []})
 
 
+def begin_replacement(name):
+    """Temporarily use the serial builder to replace the active executing frame."""
+    builder = state()["builder"]
+    if state()["stack-phase"] != EXECUTING:
+        raise RuntimeError("begin_replacement requires the executing stack phase")
+    if builder["serials"]:
+        raise RuntimeError("this thread already has replacement construction in progress")
+    current_machine = top()["machine"]
+    state()["stack-phase"] = BUILDING
+    target(current_machine)
+    begin_serial(name)
+
+
 def instruction(operation, data=None):
     """Build an instruction or push its live frame at the current target."""
     builder = state()["builder"]
@@ -218,28 +231,50 @@ def instruction(operation, data=None):
     state()["stack"]["frames"].append(frame)
 
 
-def end_serial(name):
-    """Close the named innermost serial and add it to its enclosing context."""
+def close_serial(name):
+    """Close the named innermost serial and return its completed serial frame."""
     builder = state()["builder"]
     if state()["stack-phase"] != BUILDING:
-        raise RuntimeError("end_serial requires the building stack phase")
+        raise RuntimeError("close_serial requires the building stack phase")
     if not builder["serials"]:
-        raise RuntimeError("end_serial requires an open serial")
+        raise RuntimeError("close_serial requires an open serial")
     serial = builder["serials"][-1]
     if serial["name"] != name:
-        raise RuntimeError(f"end_serial expected {serial['name']!r}, not {name!r}")
+        raise RuntimeError(f"close_serial expected {serial['name']!r}, not {name!r}")
     builder["serials"].pop()
-    frame = {
+    return {
         "machine": serial["target"],
         "op": SERIAL,
         "data": {"name": serial["name"], "steps": serial["steps"], "ip": 0},
     }
+
+
+def end_serial(name):
+    """Close the named innermost serial and add it to its enclosing context."""
+    builder = state()["builder"]
+    frame = close_serial(name)
     if builder["serials"]:
         builder["serials"][-1]["steps"].append(frame)
         return
     if state()["stack"]["frames"]:
         raise RuntimeError("a stack under construction can have only one root instruction")
     state()["stack"]["frames"].append(frame)
+
+
+def end_replacement(name):
+    """Install the serial built by ``begin_replacement`` over its original frame."""
+    builder = state()["builder"]
+    if state()["stack-phase"] != BUILDING or len(builder["serials"]) != 1:
+        raise RuntimeError("end_replacement requires active replacement construction")
+    serial_frame = close_serial(name)
+    previous = top()
+    state()["stack"]["frames"][-1] = serial_frame
+    state()["stack-phase"] = EXECUTING
+    loglogic.emit(
+        "STACK_UPDATED",
+        state()["stack"],
+        {"reason": f"rewrote {previous['machine']} / {previous['op']} as SERIAL / {serial_frame['data']['name']}"},
+    )
 
 
 @contextmanager
@@ -384,6 +419,8 @@ def reconcile():
             expand_serial()
             continue
         result = machines[machine_name]["handler"]()
+        if top() is not frame:
+            continue
         if result == SUSPENDED:
             continue
         pop_frame(result)
@@ -649,24 +686,14 @@ def handle_set_todo_state():
     """Bind a semantic TODO request, then replace it with private mem serial work."""
     frame = top()
     data = frame["data"]
-    state()["stack"]["frames"].pop()
+    begin_replacement("MEM_SET_AND_SAVE_TODO")
     target("mem")
     instruction(
-        SERIAL,
-        {
-            "name": "MEM_SET_AND_SAVE_TODO",
-            "steps": [
-                {
-                    "machine": "mem",
-                    "op": "MEM_SET_PANEL_STATE",
-                    "data": {"path": ["items", data["item"], "done"], "value": data["done"]},
-                },
-                {"machine": "mem", "op": "MEM_SAVE_DAY", "data": {}},
-            ],
-            "ip": 0,
-        },
+        "MEM_SET_PANEL_STATE",
+        {"path": ["items", data["item"], "done"], "value": data["done"]},
     )
-    return SUSPENDED
+    instruction("MEM_SAVE_DAY")
+    end_replacement("MEM_SET_AND_SAVE_TODO")
 
 
 def handle_mem_set_panel_state():
