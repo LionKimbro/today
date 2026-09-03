@@ -823,7 +823,7 @@ def post_panel_edit_stack(edit):
     post_stack()
 
 
-def post_tk_instruction(operation, data):
+def post_tk(operation, data):
     if operation != "TK_HEARTBEAT":
         loglogic.emit("EXTERNAL_EVENT", data={"message": f"request {operation}"})
     begin_stack(next_stack_id(operation.lower()), "ui")
@@ -855,7 +855,7 @@ def handle_when_today_button_is_clicked():
 
 
 def handle_when_orientation_text_is_submitted(event):
-    post_tk_instruction("TK_SET_ORIENTATION", {"text": event.widget.get()})
+    post_tk("TK_SET_ORIENTATION", {"text": event.widget.get()})
 
 
 def handle_when_todo_toggle_button_is_clicked(panel_id, desired_value):
@@ -883,7 +883,7 @@ def handle_when_panel_replace_button_is_clicked(position_id):
 
 def handle_when_heartbeat_timer_fires():
     if not g["shutting-down"]:
-        post_tk_instruction("TK_HEARTBEAT", {})
+        post_tk("TK_HEARTBEAT", {})
         g["root"].after(HEARTBEAT_INTERVAL_MS, handle_when_heartbeat_timer_fires)
 
 
