@@ -34,6 +34,10 @@ threads
   - machine-names -- `list[str]`: ids of machines run by this thread
   - current-machine -- `str | None`: register naming the machine now running
   - stack -- stack record | `None`: register holding the stack now running
+  - builder -- construction-register record, independent from runtime execution
+    - stack -- stack record | `None`: stack currently being constructed here
+    - target -- `str | None`: target machine for the next built instruction
+    - serials -- `list[open serial]`: nested serial procedures being built
   - next-machine-index -- `int`: round-robin starting position for machines
   - thread-type -- `"system" | "worker"`: Tk main thread or worker thread
   - entry-fn -- function: procedure used to run a worker thread
@@ -50,6 +54,10 @@ state() == threads[threading.current_thread().name]
 `state()["current-machine"]` and `state()["stack"]` are temporary registers.
 They are set before one reconciliation quantum and cleared afterward. They
 are not cross-thread communication channels.
+
+`state()["builder"]` is a separate, thread-local construction context. Its
+`stack` is not executing and never travels through queues. Each physical
+thread has its own independent builder registers.
 
 ## `machines` — semantic execution machines
 
@@ -99,6 +107,7 @@ stack
   - ui -- a stack created by a UI request or Tk system request
 - registers -- `dict`: named state belonging to this one logical operation
   - day -- `str`, for day-flow stacks: the selected ISO day text
+  - day-record -- complete day-record snapshot, after `MEM_LOAD_DAY` finishes
 - frames -- `list[frame]`: frames ordered `[bottom, ..., top]`
 ```
 
@@ -136,6 +145,12 @@ MEM_EDIT_AND_SAVE frame
 DISK_WRITE_DAY frame
 - data
   - day-record -- complete day record being persisted
+
+`MEM_LOAD_DAY` copies the disk result into both `memory["days"][day]` and
+`state()["stack"]["registers"]["day-record"]`. `MEM_EDIT_AND_SAVE` refreshes
+that stack register after its in-memory edit. `TK_RENDER_DAY` reads the
+stack-local `day-record`; there is no `MEM_RETURN_DAY` frame in this version
+of the spike.
 
 TK_PANEL_EVENT frame
 - data
@@ -194,6 +209,31 @@ TK_LOAD_AND_RENDER_DAY, serial on tk
 If a serial frame has `ip == 0` and two steps, its next expansion pushes step
 zero and changes `ip` to `1`. When `ip == len(steps)`, all children have been
 pushed and the serial frame itself can complete using its `child-result`.
+
+## Progressive construction context
+
+The runtime also has a construction-only API. It is not yet used by the
+existing stack-building routines; that conversion is a later refactor step.
+
+```python
+begin_stack(stack_id, kind)
+target("tk")
+
+begin_serial("FOO")
+instruction("...")
+end_serial("FOO")
+
+stack = end_stack()
+```
+
+`target()` selects the target machine for subsequently built instructions.
+`begin_serial()` captures that target for the serial it opens. Nested serials
+are represented by `state()["builder"]["serials"]`; closing one attaches it
+to the enclosing serial, or makes it the new stack's sole root instruction.
+`instruction()` likewise appends to the innermost serial, or creates a root
+primitive instruction when no serial is open. `end_stack()` requires every
+serial to be closed, returns the completed inactive stack, and clears all
+three builder registers.
 
 ## `memory` — mem-owned authoritative day records
 

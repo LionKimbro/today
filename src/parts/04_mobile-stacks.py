@@ -66,6 +66,9 @@ g = {
 #                     "machine-names": ["<machine-name>", ...],
 #                     "current-machine": "<machine-name>" | None,
 #                     "stack": <stack> | None,
+#                     "builder": {"stack": <stack under construction> | None,
+#                                 "target": "<machine-name>" | None,
+#                                 "serials": [<open serial records>]},
 #                     "next-machine-index": <round-robin index>,
 #                     "thread-type": "system" | "worker",
 #                     "entry-fn": <thread procedure>,
@@ -162,6 +165,85 @@ def make_stack(stack_id, kind, root_instruction):
         "registers": {},
         "frames": [deepcopy(root_instruction)],
     }
+    return stack
+
+
+def begin_stack(stack_id, kind):
+    """Open one stack in this thread's independent construction registers."""
+    builder = state()["builder"]
+    if builder["stack"] is not None:
+        raise RuntimeError("this thread is already constructing a stack")
+    builder["stack"] = {"id": stack_id, "kind": kind, "registers": {}, "frames": []}
+    builder["target"] = None
+    builder["serials"] = []
+
+
+def target(machine_name):
+    """Set the target machine used by subsequently constructed instructions."""
+    if state()["builder"]["stack"] is None:
+        raise RuntimeError("target requires a stack under construction")
+    if machine_name not in machines:
+        raise ValueError(f"unknown construction target: {machine_name}")
+    state()["builder"]["target"] = machine_name
+
+
+def begin_serial(name):
+    """Open a serial procedure at the builder's current target machine."""
+    builder = state()["builder"]
+    if builder["stack"] is None:
+        raise RuntimeError("begin_serial requires a stack under construction")
+    if builder["target"] is None:
+        raise RuntimeError("begin_serial requires a current construction target")
+    builder["serials"].append({"name": name, "target": builder["target"], "steps": []})
+
+
+def instruction(operation, data=None):
+    """Add one instruction at the builder's current target machine."""
+    builder = state()["builder"]
+    if builder["stack"] is None:
+        raise RuntimeError("instruction requires a stack under construction")
+    if builder["target"] is None:
+        raise RuntimeError("instruction requires a current construction target")
+    item = make_instruction(builder["target"], operation, data)
+    if builder["serials"]:
+        builder["serials"][-1]["steps"].append(item)
+        return
+    if builder["stack"]["frames"]:
+        raise RuntimeError("a stack under construction can have only one root instruction")
+    builder["stack"]["frames"].append(item)
+
+
+def end_serial(name):
+    """Close the named innermost serial and add it to its enclosing context."""
+    builder = state()["builder"]
+    if not builder["serials"]:
+        raise RuntimeError("end_serial requires an open serial")
+    serial = builder["serials"][-1]
+    if serial["name"] != name:
+        raise RuntimeError(f"end_serial expected {serial['name']!r}, not {name!r}")
+    builder["serials"].pop()
+    item = make_serial_instruction(serial["target"], serial["name"], serial["steps"])
+    if builder["serials"]:
+        builder["serials"][-1]["steps"].append(item)
+        return
+    if builder["stack"]["frames"]:
+        raise RuntimeError("a stack under construction can have only one root instruction")
+    builder["stack"]["frames"].append(item)
+
+
+def end_stack():
+    """Finish the current construction and clear this thread's builder registers."""
+    builder = state()["builder"]
+    stack = builder["stack"]
+    if stack is None:
+        raise RuntimeError("end_stack requires a stack under construction")
+    if builder["serials"]:
+        raise RuntimeError("end_stack requires every serial to be closed")
+    if len(stack["frames"]) != 1:
+        raise RuntimeError("end_stack requires exactly one root instruction")
+    builder["stack"] = None
+    builder["target"] = None
+    builder["serials"] = []
     return stack
 
 
@@ -410,7 +492,7 @@ def handle_tk_system_operation():
         post_load_day_stack(current_day_text())
         return "tk ready"
     if frame["op"] == "TK_RENDER_DAY":
-        day_snapshot = state()["stack"]["frames"][-2]["child-result"]
+        day_snapshot = state()["stack"]["registers"]["day-record"]
         if day_snapshot["day"] != current_day_text():
             return f"Tk ignored stale day snapshot {day_snapshot['day']}"
         render_day_snapshot(day_snapshot)
@@ -448,9 +530,6 @@ def handler_mem():
         return handle_mem_load_day()
     if frame["op"] == "MEM_EDIT_AND_SAVE":
         return handle_mem_edit_and_save()
-    if frame["op"] == "MEM_RETURN_DAY":
-        day_text = state()["stack"]["registers"]["day"]
-        return deepcopy(memory["days"][day_text])
     raise ValueError(f"unknown mem operation: {frame['op']}")
 
 
@@ -463,6 +542,7 @@ def handle_mem_load_day():
         push_frame(make_instruction("disk", "DISK_READ_DAY"))
         return SUSPENDED
     memory["days"][day_text] = deepcopy(frame["child-result"])
+    state()["stack"]["registers"]["day-record"] = deepcopy(memory["days"][day_text])
     return f"mem loaded {day_text}"
 
 
@@ -495,6 +575,7 @@ def handle_mem_edit_and_save():
     day_text = state()["stack"]["registers"]["day"]
     if data.get("stage") is None:
         apply_mem_edit(memory["days"][day_text], data["edit"])
+        state()["stack"]["registers"]["day-record"] = deepcopy(memory["days"][day_text])
         data["stage"] = "waiting-for-disk-save"
         push_frame(
             make_instruction(
@@ -531,7 +612,6 @@ def make_load_day_stack(stack_id, day_text):
         [
             make_instruction("mem", "MEM_LOAD_DAY"),
             make_instruction("mem", YIELD),
-            make_instruction("mem", "MEM_RETURN_DAY"),
         ],
     )
     root = make_serial_instruction(
@@ -554,7 +634,6 @@ def make_panel_edit_stack(stack_id, edit):
         [
             make_instruction("mem", "MEM_EDIT_AND_SAVE", {"edit": edit_data}),
             make_instruction("mem", YIELD),
-            make_instruction("mem", "MEM_RETURN_DAY"),
         ],
     )
     steps = []
@@ -757,17 +836,20 @@ def initialize_threads_and_machines():
     # The registry values are data, shown in the dictionary-shape comments above.
     threads["tk"] = {
         "in-queue": Queue(), "machine-names": ["tk"], "current-machine": None,
-        "stack": None, "next-machine-index": 0, "thread-type": "system",
+        "stack": None, "builder": {"stack": None, "target": None, "serials": []},
+        "next-machine-index": 0, "thread-type": "system",
         "entry-fn": pump_tk_thread, "thread-obj": None, "stop-requested": False,
     }
     threads["mem"] = {
         "in-queue": Queue(), "machine-names": ["mem"], "current-machine": None,
-        "stack": None, "next-machine-index": 0, "thread-type": "worker",
+        "stack": None, "builder": {"stack": None, "target": None, "serials": []},
+        "next-machine-index": 0, "thread-type": "worker",
         "entry-fn": run_worker_thread, "thread-obj": None, "stop-requested": False,
     }
     threads["disk"] = {
         "in-queue": Queue(), "machine-names": ["disk"], "current-machine": None,
-        "stack": None, "next-machine-index": 0, "thread-type": "worker",
+        "stack": None, "builder": {"stack": None, "target": None, "serials": []},
+        "next-machine-index": 0, "thread-type": "worker",
         "entry-fn": run_worker_thread, "thread-obj": None, "stop-requested": False,
     }
     machines["tk"] = {"thread": "tk", "run-queue": deque(), "handler": handler_tk}
