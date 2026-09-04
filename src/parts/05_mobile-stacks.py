@@ -37,48 +37,39 @@ g = {
 
 # Tk-owned live widgets and presentation records.
 widgets = {}
-position_widgets = {"position-1": {}, "position-2": {}}
+position_records = {
+    "position-1": {"id": "position-1", "host-widgets": {}, "panel-widgets": {}},
+    "position-2": {"id": "position-2", "host-widgets": {}, "panel-widgets": {}},
+}
 panel_records = {}
-panel_widgets = {}
+panel_to_position = {}
+position_to_panel = {}
 
-# Mem-owned authoritative data: positions live with days; panels name owners.
+# Mem-owned authoritative data: positions live with days; panels use the same
+# portable record schema that travels to Tk through a stack register.
 memory = {"days": {}, "panels": {}}
 
 # Disk-owned simulated persistence: each entry is a complete persisted bundle.
 disk_store = {"days": {}}
 
-# Cross-machine activity messages.  Tk alone presents them in its text widget.
-activity = Queue()
-
 # Each machine owns its local run queue.  The inbound queues transfer stack
 # ownership across threads; no sender touches a stack after putting it there.
 machines = {
-    "tk": {"in-queue": Queue(), "run-queue": deque(), "handler": None, "worker": False},
-    "mem": {"in-queue": Queue(), "run-queue": deque(), "handler": None, "worker": True},
-    "disk": {"in-queue": Queue(), "run-queue": deque(), "handler": None, "worker": True},
-}
-
-# One active-stack register per physical machine thread.  It is only the
-# runtime's current work slot, not a second place to store application data.
-runtime = {
-    "tk": {"stack": None},
-    "mem": {"stack": None},
-    "disk": {"stack": None},
+    "tk": {"in-queue": Queue(), "run-queue": deque(), "handler": None, "worker": False, "stack": None},
+    "mem": {"in-queue": Queue(), "run-queue": deque(), "handler": None, "worker": True, "stack": None},
+    "disk": {"in-queue": Queue(), "run-queue": deque(), "handler": None, "worker": True, "stack": None},
 }
 
 
 def log(line):
-    """Publish an observation for Tk to display at its next safe pump."""
-    activity.put(line)
+    """Append an observation to the active stack so it travels with the work."""
+    active_stack()["registers"].setdefault("activity-lines", []).append(line)
 
 
-def present_activity():
-    """Let the Tk thread present all activity accumulated by every machine."""
-    while True:
-        try:
-            line = activity.get_nowait()
-        except Empty:
-            return
+def present_stack_activity():
+    """Tk-only: present the current stack's accumulated activity lines."""
+    lines = active_stack()["registers"].pop("activity-lines", [])
+    for line in lines:
         print(line, flush=True)
         trace = widgets.get("trace")
         if trace is not None:
@@ -86,12 +77,15 @@ def present_activity():
             trace.see("end")
 
 
-def active_runtime():
-    return runtime[current_thread().name]
+def active_machine():
+    machine_name = current_thread().name
+    if machine_name not in machines:
+        raise RuntimeError(f"thread {machine_name!r} is not a Mobile Stacks machine")
+    return machines[machine_name]
 
 
 def active_stack():
-    stack = active_runtime()["stack"]
+    stack = active_machine()["stack"]
     if stack is None:
         raise RuntimeError("this operation requires an active work stack")
     return stack
@@ -124,35 +118,32 @@ def drop():
 
 def begin_stack(machine_name, operation):
     """Start one small work stack on the calling machine's active-stack slot."""
-    if active_runtime()["stack"] is not None:
+    machine = active_machine()
+    if machine["stack"] is not None:
         raise RuntimeError("cannot begin a stack while another stack is active")
-    active_runtime()["stack"] = {"registers": {}, "frames": [{"machine": machine_name, "op": operation}]}
+    machine["stack"] = {"registers": {}, "frames": [{"machine": machine_name, "op": operation}]}
 
 
 def submit_stack():
-    """Queue the stack just constructed by the current Tk callback."""
+    """Route the active stack to the machine named by its current top frame."""
     stack = active_stack()
-    active_runtime()["stack"] = None
-    queue_stack(stack)
-
-
-def queue_stack(stack):
-    """Give a stack to its top frame's machine, locally when already there."""
+    machine = active_machine()
     if not stack["frames"]:
+        machine["stack"] = None
         g["completed-stack-count"] += 1
-        log("stack completed")
         return
     machine_name = stack["frames"][-1]["machine"]
     if machine_name not in machines:
         raise ValueError(f"unknown machine {machine_name}")
+    machine["stack"] = None
     if current_thread().name == machine_name:
         machines[machine_name]["run-queue"].append(stack)
     else:
         machines[machine_name]["in-queue"].put(stack)
 
 
-def admit_inbound_stacks(machine_name):
-    machine = machines[machine_name]
+def admit_stacks():
+    machine = active_machine()
     while True:
         try:
             stack = machine["in-queue"].get_nowait()
@@ -164,43 +155,42 @@ def admit_inbound_stacks(machine_name):
             machine["run-queue"].append(stack)
 
 
-def run_one_stack(machine_name):
+def run_one_stack():
     """Run one handler invocation, then let its edited top frame decide routing."""
-    admit_inbound_stacks(machine_name)
-    machine = machines[machine_name]
+    admit_stacks()
+    machine_name = current_thread().name
+    machine = active_machine()
     if not machine["run-queue"]:
         return False
     stack = machine["run-queue"].popleft()
     if stack is None:
         return None
 
-    active_runtime()["stack"] = stack
+    machine["stack"] = stack
     frame = top()
     if frame["machine"] != machine_name:
-        active_runtime()["stack"] = None
-        queue_stack(stack)
+        submit_stack()
         return True
 
     log(f"{machine_name}: {frame['op']}")
     machine["handler"]()
-    stack = active_runtime()["stack"]
-    active_runtime()["stack"] = None
-    queue_stack(stack)
+    if machine_name == "tk":
+        present_stack_activity()
+    submit_stack()
     return True
 
 
 def run_worker_machine():
-    machine_name = current_thread().name
     while True:
-        result = run_one_stack(machine_name)
+        result = run_one_stack()
         if result is None:
             return
         if result is False:
             try:
-                stack = machines[machine_name]["in-queue"].get(timeout=0.1)
+                stack = active_machine()["in-queue"].get(timeout=0.1)
             except Empty:
                 continue
-            machines[machine_name]["run-queue"].append(stack)
+            active_machine()["run-queue"].append(stack)
 
 
 def schedule_tk_pump():
@@ -212,9 +202,8 @@ def schedule_tk_pump():
 def pump_tk_machine():
     g["tk-pump-scheduled"] = False
     for _ in range(12):
-        if not run_one_stack("tk"):
+        if not run_one_stack():
             break
-    present_activity()
     if not g["shutting-down"]:
         schedule_tk_pump()
 
@@ -229,10 +218,10 @@ def make_blank_day(day_text):
         "day": day_text,
         "position-panel": {"position-1": todo_id, "position-2": journal_id},
         "panels": {
-            todo_id: {"type": TODO_PANEL, "state": {"items": [{"text": f"Try the panel controls on {day_text}", "done": False}]}},
-            alternate_todo_id: {"type": TODO_PANEL, "state": {"items": [{"text": f"An alternate TODO for {day_text}", "done": False}]}},
-            journal_id: {"type": JOURNAL_PANEL, "state": {"text": f"Write a thought for {day_text}."}},
-            alternate_journal_id: {"type": JOURNAL_PANEL, "state": {"text": f"This alternate journal remembers {day_text}."}},
+            todo_id: {"id": todo_id, "type": TODO_PANEL, "day": day_text, "data": {"items": [{"text": f"Try the panel controls on {day_text}", "done": False}]}},
+            alternate_todo_id: {"id": alternate_todo_id, "type": TODO_PANEL, "day": day_text, "data": {"items": [{"text": f"An alternate TODO for {day_text}", "done": False}]}},
+            journal_id: {"id": journal_id, "type": JOURNAL_PANEL, "day": day_text, "data": {"text": f"Write a thought for {day_text}."}},
+            alternate_journal_id: {"id": alternate_journal_id, "type": JOURNAL_PANEL, "day": day_text, "data": {"text": f"This alternate journal remembers {day_text}."}},
         },
     }
 
@@ -249,7 +238,10 @@ def install_day_bundle(day_text, day_bundle):
     memory["days"][day_text] = day_record
     for panel_id, panel_record in panels.items():
         panel = deepcopy(panel_record)
-        panel["day"] = day_text
+        if panel["id"] != panel_id:
+            raise ValueError(f"panel key {panel_id} does not match record id {panel['id']}")
+        if panel["day"] != day_text:
+            raise ValueError(f"panel {panel_id} does not belong to {day_text}")
         memory["panels"][panel_id] = panel
     check_day_layout(day_text)
 
@@ -322,21 +314,26 @@ def handler_mem():
         push("tk", "RENDER_DAY")
         return
     if operation == "SET_TODO_STATE":
-        panel_id = get_register("panel")
-        memory["panels"][panel_id]["state"]["items"][0]["done"] = get_register("desired-state")
-        prepare_save_and_render_for_panel(panel_id)
+        resolve_panel_record_from_locator()
+        panel_record = get_register("panel-record")
+        panel_record["data"]["items"][0]["done"] = get_register("desired-state")
+        store_current_panel_record()
+        prepare_save_and_render(panel_record["day"])
         return
     if operation == "SET_JOURNAL_TEXT":
-        panel_id = get_register("panel")
-        memory["panels"][panel_id]["state"]["text"] = get_register("journal-text")
-        prepare_save_and_render_for_panel(panel_id)
+        resolve_panel_record_from_locator()
+        panel_record = get_register("panel-record")
+        panel_record["data"]["text"] = get_register("journal-text")
+        store_current_panel_record()
+        prepare_save_and_render(panel_record["day"])
         return
     if operation == "SET_POSITION_PANEL":
+        resolve_panel_record_from_locator()
         day_text = get_register("day")
-        panel_id = get_register("panel")
-        if memory["panels"][panel_id]["day"] != day_text:
-            raise RuntimeError(f"panel {panel_id} does not belong to {day_text}")
-        memory["days"][day_text]["position-panel"][get_register("position")] = panel_id
+        panel_record = get_register("panel-record")
+        if panel_record["day"] != day_text:
+            raise RuntimeError(f"panel {panel_record['id']} does not belong to {day_text}")
+        memory["days"][day_text]["position-panel"][get_register("position")] = panel_record["id"]
         prepare_save_and_render(day_text)
         return
     raise ValueError(f"unknown mem operation {operation}")
@@ -354,8 +351,19 @@ def handle_mem_load_day():
     push("disk", "READ_DAY")
 
 
-def prepare_save_and_render_for_panel(panel_id):
-    prepare_save_and_render(memory["panels"][panel_id]["day"])
+def resolve_panel_record_from_locator():
+    """Mem-only: turn a requested panel ID into a portable stack record."""
+    panel_id = get_register("locate-panel-id")
+    if panel_id is None:
+        raise RuntimeError("mem needs locate-panel-id before resolving a panel")
+    set_register("panel-record", deepcopy(memory["panels"][panel_id]))
+    set_register("locate-panel-id", None)
+
+
+def store_current_panel_record():
+    """Mem-only: copy the changed portable stack record back into authoritative RAM."""
+    panel_record = get_register("panel-record")
+    memory["panels"][panel_record["id"]] = deepcopy(panel_record)
 
 
 def prepare_save_and_render(day_text):
@@ -396,19 +404,20 @@ def render_day_from_register():
         panel_records[panel_id] = deepcopy(panel_record)
     if not g["headless"]:
         widgets["date-label"].configure(text=day_record["day"])
-        for position_id, panel_id in day_record["position-panel"].items():
-            mount_panel(position_id, panel_id)
+    for position_id, panel_id in day_record["position-panel"].items():
+        mount_panel(position_id, panel_id)
 
 
 def choose_replacement_panel():
     """Tk-only: choose from the rendered presentation snapshot, then register it."""
     position_id = get_register("position")
-    current_panel = position_widgets[position_id]["mounted-panel"]
+    current_panel = position_to_panel[position_id]
     desired_type = JOURNAL_PANEL if panel_records[current_panel]["type"] == TODO_PANEL else TODO_PANEL
-    mounted = {record.get("mounted-panel") for record in position_widgets.values()}
+    mounted = set(position_to_panel.values())
     for panel_id, panel_record in panel_records.items():
         if panel_record["type"] == desired_type and panel_id not in mounted:
-            set_register("panel", panel_id)
+            set_register("locate-panel-id", panel_id)
+            set_register("panel-record", None)
             return
     raise RuntimeError(f"no unmounted {desired_type} panel is available for {position_id}")
 
@@ -431,41 +440,49 @@ def post_load_day():
 
 
 def clear_position_panel(position_id):
-    old_panel = position_widgets[position_id].get("mounted-panel")
+    position_record = position_records[position_id]
+    old_panel = position_to_panel.pop(position_id, None)
     if old_panel is not None:
-        panel_widgets[old_panel]["content"].destroy()
-        panel_widgets.pop(old_panel, None)
+        panel_to_position.pop(old_panel, None)
+    content = position_record["panel-widgets"].get("content")
+    if content is not None:
+        content.destroy()
+    position_record["panel-widgets"].clear()
 
 
 def mount_panel(position_id, panel_id):
     clear_position_panel(position_id)
-    position_widgets[position_id]["mounted-panel"] = panel_id
-    build_panel_in_position(position_id, panel_id, panel_records[panel_id])
+    position_to_panel[position_id] = panel_id
+    panel_to_position[panel_id] = position_id
+    if not g["headless"]:
+        build_panel_in_position(position_id, panel_id, panel_records[panel_id])
 
 
 def build_panel_in_position(position_id, panel_id, panel_record):
-    host = position_widgets[position_id]["host"]
-    position_widgets[position_id]["panel-label"].configure(text=f"{panel_id} / {panel_record['type']}")
+    position_record = position_records[position_id]
+    host = position_record["host-widgets"]["labelframe"]
+    position_record["host-widgets"]["label"].configure(text=f"{panel_id} / {panel_record['type']}")
     content = ttk.Frame(host, padding=8)
     content.pack(fill="both", expand=True)
-    panel_widgets[panel_id] = {"content": content}
+    position_record["panel-widgets"]["content"] = content
     if panel_record["type"] == TODO_PANEL:
-        build_todo_panel_gui(panel_id, panel_record)
+        build_todo_panel_gui(position_id, panel_id, panel_record)
     else:
-        build_journal_panel_gui(panel_id, panel_record)
+        build_journal_panel_gui(position_id, panel_id, panel_record)
 
 
-def build_todo_panel_gui(panel_id, panel_record):
-    item = panel_record["state"]["items"][0]
-    content = panel_widgets[panel_id]["content"]
+def build_todo_panel_gui(position_id, panel_id, panel_record):
+    item = panel_record["data"]["items"][0]
+    content = position_records[position_id]["panel-widgets"]["content"]
     ttk.Label(content, text=("done" if item["done"] else "open") + ": " + item["text"]).pack(anchor="w", pady=(0, 8))
     ttk.Button(content, text="Toggle first item", command=lambda: handle_when_todo_toggle_button_is_clicked(panel_id, not item["done"])).pack(anchor="w")
 
 
-def build_journal_panel_gui(panel_id, panel_record):
-    content = panel_widgets[panel_id]["content"]
-    text_var = tk.StringVar(value=panel_record["state"]["text"])
-    panel_widgets[panel_id]["text-var"] = text_var
+def build_journal_panel_gui(position_id, panel_id, panel_record):
+    mounted_widgets = position_records[position_id]["panel-widgets"]
+    content = mounted_widgets["content"]
+    text_var = tk.StringVar(value=panel_record["data"]["text"])
+    mounted_widgets["text-var"] = text_var
     entry = ttk.Entry(content, textvariable=text_var, width=42)
     entry.pack(fill="x")
     entry.bind("<Return>", lambda event: handle_when_journal_entry_is_submitted(event, panel_id))
@@ -475,9 +492,10 @@ def build_journal_panel_gui(panel_id, panel_record):
 def build_panel_host(parent, position_id):
     host = ttk.LabelFrame(parent, text=position_id, padding=4)
     host.pack(side="left", fill="both", expand=True, padx=8, pady=8)
-    position_widgets[position_id]["host"] = host
-    position_widgets[position_id]["panel-label"] = ttk.Label(host)
-    position_widgets[position_id]["panel-label"].pack(anchor="w", padx=8, pady=(4, 0))
+    position_record = position_records[position_id]
+    position_record["host-widgets"]["labelframe"] = host
+    position_record["host-widgets"]["label"] = ttk.Label(host)
+    position_record["host-widgets"]["label"].pack(anchor="w", padx=8, pady=(4, 0))
     ttk.Button(host, text="Replace panel", command=lambda: handle_when_panel_replace_button_is_clicked(position_id)).pack(anchor="w", padx=8, pady=(4, 0))
 
 
@@ -505,7 +523,8 @@ def handle_when_orientation_text_is_submitted(event):
 
 def handle_when_todo_toggle_button_is_clicked(panel_id, desired_value):
     begin_stack("tk", "HANDLE_TODO_EVENT")
-    set_register("panel", panel_id)
+    set_register("locate-panel-id", panel_id)
+    set_register("panel-record", None)
     set_register("desired-state", desired_value)
     submit_stack()
     schedule_tk_pump()
@@ -513,7 +532,8 @@ def handle_when_todo_toggle_button_is_clicked(panel_id, desired_value):
 
 def handle_when_journal_entry_is_submitted(event, panel_id):
     begin_stack("tk", "HANDLE_JOURNAL_EVENT")
-    set_register("panel", panel_id)
+    set_register("locate-panel-id", panel_id)
+    set_register("panel-record", None)
     set_register("journal-text", event.widget.get())
     submit_stack()
     schedule_tk_pump()
@@ -589,8 +609,7 @@ def request_shutdown():
 def run_headless_until_completed(target_count):
     deadline = time.monotonic() + 3
     while g["completed-stack-count"] < target_count and time.monotonic() < deadline:
-        run_one_stack("tk")
-        present_activity()
+        run_one_stack()
         time.sleep(0.005)
     if g["completed-stack-count"] < target_count:
         raise RuntimeError("headless mobile-stacks work did not complete")
@@ -601,20 +620,37 @@ def run_headless_demo():
     run_headless_until_completed(1)
     todo_id = next(panel_id for panel_id, panel in panel_records.items() if panel["type"] == TODO_PANEL)
     begin_stack("tk", "HANDLE_TODO_EVENT")
-    set_register("panel", todo_id)
+    set_register("locate-panel-id", todo_id)
+    set_register("panel-record", None)
     set_register("desired-state", True)
     submit_stack()
     run_headless_until_completed(2)
-    if not panel_records[todo_id]["state"]["items"][0]["done"]:
+    if not panel_records[todo_id]["data"]["items"][0]["done"]:
         raise RuntimeError("TODO event did not return an updated Tk presentation snapshot")
     journal_id = next(panel_id for panel_id, panel in panel_records.items() if panel["type"] == JOURNAL_PANEL)
     begin_stack("tk", "HANDLE_JOURNAL_EVENT")
-    set_register("panel", journal_id)
+    set_register("locate-panel-id", journal_id)
+    set_register("panel-record", None)
     set_register("journal-text", "headless journal check")
     submit_stack()
     run_headless_until_completed(3)
-    if panel_records[journal_id]["state"]["text"] != "headless journal check":
+    if panel_records[journal_id]["data"]["text"] != "headless journal check":
         raise RuntimeError("journal event did not return an updated Tk presentation snapshot")
+    begin_stack("tk", "HANDLE_REPLACE_PANEL")
+    set_register("position", "position-1")
+    set_register("day", g["rendered-day"])
+    submit_stack()
+    run_headless_until_completed(4)
+    if panel_records[position_to_panel["position-1"]]["type"] != JOURNAL_PANEL:
+        raise RuntimeError("panel replacement did not update Tk mounting relationships")
+    handle_when_next_day_button_is_clicked()
+    run_headless_until_completed(5)
+    handle_when_previous_day_button_is_clicked()
+    run_headless_until_completed(6)
+    handle_when_today_button_is_clicked()
+    run_headless_until_completed(7)
+    if g["rendered-day"] != current_day_text():
+        raise RuntimeError("day navigation did not render the selected day")
     print("headless mobile-stacks check completed", flush=True)
 
 
