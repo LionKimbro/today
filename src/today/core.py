@@ -7,7 +7,7 @@ g = {
     "running": False,
     "today-id": None,
     "incoming-events": None,
-    "outgoing-commands": None,
+    "send-tk-command": None,
 }
 
 days = {}
@@ -38,7 +38,7 @@ def initialize_today_world():
 def render_today():
     position = positions["position-1"]
     panel = panels[position["panel-id"]]
-    g["outgoing-commands"].put(
+    g["send-tk-command"](
         {
             "type": "RENDER_TODAY",
             "today-id": g["today-id"],
@@ -50,15 +50,25 @@ def render_today():
     )
 
 
+def set_panel_label(panel_id):
+    g["send-tk-command"](
+        {
+            "type": "SET_PANEL_LABEL",
+            "panel-id": panel_id,
+            "panel-label": panels[panel_id]["label"],
+        }
+    )
+
+
 def reduce_event(event):
     if event["type"] == "RENAME_PANEL":
         panels[event["panel-id"]]["label"] = "renamed panel"
-        render_today()
+        set_panel_label(event["panel-id"])
         return
 
     if event["type"] == "SHUTDOWN":
         g["running"] = False
-        g["outgoing-commands"].put({"type": "SHUTDOWN_COMPLETE"})
+        g["send-tk-command"]({"type": "SHUTDOWN_COMPLETE"})
 
 
 def run_reducer_core():
@@ -70,4 +80,3 @@ def run_reducer_core():
         event = g["incoming-events"].get()
         print("Tk -> Core:", event)
         reduce_event(event)
-

@@ -13,6 +13,7 @@ g = {
 }
 
 widgets = {}
+panel_widgets = {}
 
 
 def build_today_window():
@@ -20,6 +21,7 @@ def build_today_window():
     g["root"].title("Today")
     g["root"].minsize(420, 300)
     g["root"].protocol("WM_DELETE_WINDOW", handle_when_user_requests_window_close)
+    g["root"].bind("<<CoreMailAvailable>>", handle_when_core_mail_arrives)
 
     content = ttk.Frame(g["root"], padding=20)
     content.grid(sticky="nsew")
@@ -65,19 +67,29 @@ def handle_when_user_requests_window_close():
     g["outgoing-events"].put({"type": "SHUTDOWN"})
 
 
+def enqueue_core_command_and_wake_tk(command):
+    g["incoming-commands"].put(command)
+    g["root"].event_generate("<<CoreMailAvailable>>", when="tail")
+
+
 def realize_core_command(command):
     if command["type"] == "RENDER_TODAY":
         widgets["date"].configure(text=command["today-id"])
         widgets["tab"].configure(text=command["tab-label"])
         widgets["position"].configure(text=command["position-id"])
         widgets["panel-label"].configure(text=command["panel-label"])
+        panel_widgets[command["panel-id"]] = {"label": widgets["panel-label"]}
+        return
+
+    if command["type"] == "SET_PANEL_LABEL":
+        panel_widgets[command["panel-id"]]["label"].configure(text=command["panel-label"])
         return
 
     if command["type"] == "SHUTDOWN_COMPLETE":
         g["root"].destroy()
 
 
-def handle_core_commands_when_tk_wakes():
+def handle_when_core_mail_arrives(event):
     try:
         while True:
             command = g["incoming-commands"].get_nowait()
@@ -88,11 +100,6 @@ def handle_core_commands_when_tk_wakes():
     except Empty:
         pass
 
-    if g["root"].winfo_exists():
-        g["root"].after(25, handle_core_commands_when_tk_wakes)
-
 
 def run_tk_machine():
-    build_today_window()
-    g["root"].after(25, handle_core_commands_when_tk_wakes)
     g["root"].mainloop()
