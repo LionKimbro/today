@@ -9,7 +9,7 @@ description = "Today daily cockpit"
 requires-python = ">=3.10"
 
 [project.scripts]
-today = "today.app:main"
+today = "today.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

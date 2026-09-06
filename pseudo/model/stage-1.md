@@ -1,5 +1,7 @@
 # Stage 1 world
 
+In Stage 2, `core.py` owns this world.
+
 **Path:** day → tab → position → hosted panel identity
 
 | Collection | Key | Record |
