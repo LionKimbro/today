@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "today"
+version = "0.1.0"
+description = "Today daily cockpit"
+requires-python = ">=3.10"
+
+[project.scripts]
+today = "today.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

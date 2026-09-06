@@ -1,0 +1,3 @@
+2026-09-06  1:26a
+  We are working on 07 per the steps in "How do I proceed to 07?"  https://chatgpt.com/c/6a9cf89b-4860-83e8-8cd0-634dcd19a115
+  In Codex/ChatGPT, the conversation is "[ ] Build /src/today/"

@@ -1,5 +1,5 @@
 {
-  "purpose": "We're now creating a variant spike for the mobile stack concept.  Originally outlined in docs\\raw\\0190__context-handoff-machine-concept.md, and our implementation in src\\parts\\04_mobile-stacks.py, but -- it was going too far in the direction of \"programming language.\"  We're taking a different tack this time.  We're going to build 05_mobile-stacks.py out of the wreckage of 04_mobile-stacks.py.  This injection from the \"context jetpack\" will point you to my basic programming guidelines.",
+  "purpose": "We are creating a fresh version of the \"Today\" application.  We're starting humble and small.  I wouldn't worry so much about \"what it is\" at this point;  Just focus on following instructions, and I think it'll start to emerge.  I'll share history and stuff with you as we go, until you see the big picture and our point in history.  But it'd be too distracting right now.  We'll get there.",
   "options": {
     "encourage-questions": true,
     "request-ack": true
@@ -56,9 +56,9 @@
       "reason": "These are the broad things to hold in mind when writing Python programs for Lion."
     },
     "bad-method": {
-      "selected": false,
+      "selected": true,
       "designation": "required",
-      "reason": "The development process we will use to meet our goal."
+      "reason": "Don't read this document TOO tightly, but understand that we're going to use a \"lighter\" form of Bounded Agentic Development to control programming.  We'll talk about this."
     },
     "json-document-writing": {
       "selected": false,
