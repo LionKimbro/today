@@ -1,5 +1,5 @@
 {
-  "purpose": "We're now creating a variant spike for the mobile stack concept.  Originally outlined in docs\\raw\\0190__context-handoff-machine-concept.md, and our implementation in src\\parts\\04_mobile-stacks.py, but -- it was going too far in the direction of \"programming language.\"  We're taking a different tack this time.  We're going to build 05_mobile-stacks.py out of the wreckage of 04_mobile-stacks.py.  This injection from the \"context jetpack\" will point you to my basic programming guidelines.",
+  "purpose": "We are going to be merging 03_combined_model.py and 05_mobile_stacks.py.",
   "options": {
     "encourage-questions": true,
     "request-ack": true

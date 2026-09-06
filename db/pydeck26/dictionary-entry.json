@@ -7,11 +7,58 @@
       "cockpit",
       "today",
       "m1",
-      "mobilestacks"
+      "mobilestacks",
+      "templeoffocus",
+      "dailyworkspace",
+      "daily",
+      "attention",
+      "continuity",
+      "tkinter"
     ],
-    "hook": "a cockpit for today"
+    "hook": "Lion's daily cockpit within Temple of Focus: a persistent workspace for inhabiting the current day, holding immediate work, notes, panels, orientation, and the context needed to return after interruption."
   },
+  "entry-weight": "deep-orientation",
+  "origin": "Developed by Lion and Wing-Cat as the day-scale operational surface of Temple of Focus. Early experiments separately explored the panel model and interaction model, then combined them before turning to the architectural problem of separating Tk presentation, authoritative memory, disk persistence, and communication between threads.",
+  "outline": [
+    "Today is the place where Lion lives through the current day: tasks, journal material, orientation, panels, notes, metrics, and active work are gathered into a persistent daily cockpit.",
+    "A day is treated as a lived viewpoint rather than merely a date record; the interface is meant to make it easy to re-enter what mattered after distraction, sleep, interruption, or context-switching.",
+    "The UI is organized around panels occupying positions; panels may represent different kinds of working surfaces such as TODOs, journals, whiteboards, or future panel types.",
+    "Today is architected as cooperating machines with explicit ownership: Tk owns live presentation, memory owns authoritative in-memory semantic state, and disk owns persistence.",
+    "Mobile Stacks were developed inside Today as a way to move one logical operation between machines and threads while carrying its context and preserving what work remains.",
+    "The simplified Mobile Stacks model uses tiny control frames and a wider traveling register context: frames say which machine and operation come next, registers carry data, and ordinary Python handlers do the actual work."
+  ],
+  "core-concepts": {
+    "day-as-viewpoint": "A Today day is a lived operational viewpoint: the place from which the current day is experienced and worked, not merely a database row keyed by date.",
+    "panels": "Modular working surfaces mounted into positions in the Today interface; panel identity and panel state are kept distinct from the positions in which panels are displayed.",
+    "machine-ownership": "Tk owns live GUI state, mem owns authoritative semantic memory, and disk owns persistence; work is routed to the machine that owns the responsibility.",
+    "mobile-stacks": "Traveling work stacks used to preserve continuation and context while Python work moves among Tk, mem, disk, and potentially later remote execution systems.",
+    "traveling-registers": "Wide stack-local context used for values that must survive across handlers or machine boundaries, while temporary computation remains ordinary Python locals."
+  },
+  "design-intent": [
+    "Provide a durable daily home for attention rather than a conventional productivity dashboard.",
+    "Make it easy to see what matters now and to resume work after interruption without reconstructing the entire context from memory.",
+    "Serve as the immediate, day-scale surface of Temple of Focus while longer-lived meaning and continuity are represented through Arcs.",
+    "Keep application architecture inspectable and explicit enough that work can move safely among UI, memory, persistence, and eventually other execution environments."
+  ],
+  "clarifications": [
+    "Today is not merely a to-do list; TODOs are only one kind of panel or working surface.",
+    "Today is not the whole Temple of Focus; it is the daily cockpit within the larger ecology.",
+    "Arcs represent longer-lived passages and trajectories, while Today represents the immediate lived day in which those arcs are encountered and acted within.",
+    "Mobile Stacks are an implementation architecture developed for Today, not the purpose of Today itself.",
+    "M1 is a broader semantic data system; Today may use or interoperate with M1, but Today is an application and lived workspace rather than simply an M1 browser."
+  ],
   "technical-features": [
-    "uses 'mobile stacks' concept"
+    "Tkinter-based panel interface.",
+    "Separates live Tk presentation, authoritative memory, and disk persistence into explicit machines/threads.",
+    "Uses the Mobile Stacks concept for routing work and continuation across machine boundaries.",
+    "Memory model separates day records from panel records while preserving day-to-panel and panel-to-day relationships.",
+    "Designed around simple, inspectable procedural Python rather than heavy framework machinery."
+  ],
+  "related-entries": [
+    "temple-of-focus",
+    "arcs",
+    "m1",
+    "wing-cat",
+    "lions-coding-standards"
   ]
 }

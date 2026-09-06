@@ -1,1 +1,34 @@
-{"items": []}
+{
+  "items": [
+    {
+      "path": "docs/raw/",
+      "filename": "0240__how-the-fuck-we-got-here.md",
+      "hook": "\"The Story So Far.\" (2026-09-04)",
+      "kind": "file"
+    },
+    {
+      "path": "docs/raw/",
+      "filename": "0230__next-iteration-07-outline.md",
+      "hook": "The approach we're taking for iteration #07",
+      "kind": "file"
+    },
+    {
+      "path": "docs/raw/",
+      "filename": "0232__panic-diffusing-addendum.md",
+      "hook": "ammended notes on 0230, to be brought in when making #07",
+      "kind": "file"
+    },
+    {
+      "path": "src/parts/",
+      "filename": "03_combined-model.py",
+      "hook": "The demonstration of how the days/tabs/panels should work, as a GUI.",
+      "kind": "file"
+    },
+    {
+      "path": "src/parts/",
+      "filename": "05_mobile-stacks.py",
+      "hook": "The best demonstration of how mobile stacks works.",
+      "kind": "file"
+    }
+  ]
+}

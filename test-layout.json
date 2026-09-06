@@ -1,0 +1,82 @@
+{
+  "format": "today-cockpit-layout",
+  "schema_version": 2,
+  "layout": {
+    "schema_version": 2,
+    "outer_sash_position": 102,
+    "pages": [
+      {
+        "id": "f67e004d-0d47-452e-988e-0b1677603919",
+        "name": "overview",
+        "rows": [
+          {
+            "pane_count": 3,
+            "height": 277,
+            "sash_positions": [
+              338,
+              681
+            ],
+            "sash_proportions": [
+              0.330078125,
+              0.6650390625
+            ],
+            "panels": [
+              {
+                "panel_type": "todo"
+              },
+              {
+                "panel_type": "whiteboard"
+              },
+              {
+                "panel_type": "orientation"
+              }
+            ]
+          },
+          {
+            "pane_count": 2,
+            "height": 313,
+            "sash_positions": [
+              603
+            ],
+            "sash_proportions": [
+              0.5888671875
+            ],
+            "panels": [
+              {
+                "panel_type": "metrics"
+              },
+              {
+                "panel_type": "empty"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "5959cebd-6c1b-4205-9de7-20894697d936",
+        "name": "journal",
+        "rows": [
+          {
+            "pane_count": 2,
+            "height": 555,
+            "sash_positions": [
+              498
+            ],
+            "sash_proportions": [
+              0.486328125
+            ],
+            "panels": [
+              {
+                "panel_type": "empty"
+              },
+              {
+                "panel_type": "empty"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "selected_page": "f67e004d-0d47-452e-988e-0b1677603919"
+  }
+}

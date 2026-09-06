@@ -20,7 +20,6 @@ from tkinter import ttk
 TODO_PANEL = "TODO"
 JOURNAL_PANEL = "JOURNAL"
 HEARTBEAT_INTERVAL_MS = 15_000
-TK_PUMP_INTERVAL_MS = 25
 
 
 g = {
@@ -138,6 +137,10 @@ def submit_stack():
     machine["stack"] = None
     if current_thread().name == machine_name:
         machines[machine_name]["run-queue"].append(stack)
+        if machine_name == "tk":
+            schedule_tk_pump()
+    elif machine_name == "tk":
+        send_to_tk(stack)
     else:
         machines[machine_name]["in-queue"].put(stack)
 
@@ -193,10 +196,17 @@ def run_worker_machine():
             active_machine()["run-queue"].append(stack)
 
 
+def send_to_tk(stack):
+    """Deliver cross-thread work to Tk and wake its event loop in one operation."""
+    machines["tk"]["in-queue"].put(stack)
+    if g["root"] is not None:
+        g["root"].event_generate("<<MobileStacksWake>>", when="tail")
+
+
 def schedule_tk_pump():
     if g["root"] is not None and not g["tk-pump-scheduled"]:
         g["tk-pump-scheduled"] = True
-        g["root"].after(TK_PUMP_INTERVAL_MS, pump_tk_machine)
+        g["root"].after_idle(pump_tk_machine)
 
 
 def pump_tk_machine():
@@ -204,8 +214,10 @@ def pump_tk_machine():
     for _ in range(12):
         if not run_one_stack():
             break
-    if not g["shutting-down"]:
-        schedule_tk_pump()
+
+
+def handle_when_mobile_stacks_wake_event_arrives(event):
+    pump_tk_machine()
 
 
 def make_blank_day(day_text):
@@ -426,17 +438,10 @@ def current_day_text():
     return g["selected-day"].isoformat()
 
 
-def post_tk_work(operation):
-    begin_stack("tk", operation)
-    submit_stack()
-    schedule_tk_pump()
-
-
 def post_load_day():
     begin_stack("tk", "REQUEST_LOAD_DAY")
     set_register("day", current_day_text())
     submit_stack()
-    schedule_tk_pump()
 
 
 def clear_position_panel(position_id):
@@ -518,7 +523,6 @@ def handle_when_orientation_text_is_submitted(event):
     begin_stack("tk", "SET_ORIENTATION")
     set_register("orientation", event.widget.get())
     submit_stack()
-    schedule_tk_pump()
 
 
 def handle_when_todo_toggle_button_is_clicked(panel_id, desired_value):
@@ -527,7 +531,6 @@ def handle_when_todo_toggle_button_is_clicked(panel_id, desired_value):
     set_register("panel-record", None)
     set_register("desired-state", desired_value)
     submit_stack()
-    schedule_tk_pump()
 
 
 def handle_when_journal_entry_is_submitted(event, panel_id):
@@ -536,7 +539,6 @@ def handle_when_journal_entry_is_submitted(event, panel_id):
     set_register("panel-record", None)
     set_register("journal-text", event.widget.get())
     submit_stack()
-    schedule_tk_pump()
 
 
 def handle_when_panel_replace_button_is_clicked(position_id):
@@ -544,11 +546,11 @@ def handle_when_panel_replace_button_is_clicked(position_id):
     set_register("position", position_id)
     set_register("day", g["rendered-day"])
     submit_stack()
-    schedule_tk_pump()
 
 
 def handle_when_heartbeat_timer_fires():
-    post_tk_work("HEARTBEAT")
+    begin_stack("tk", "HEARTBEAT")
+    submit_stack()
     if not g["shutting-down"]:
         g["root"].after(HEARTBEAT_INTERVAL_MS, handle_when_heartbeat_timer_fires)
 
@@ -590,6 +592,7 @@ def build_tk_interface():
     ttk.Button(activity_frame, text="Clear activity", command=handle_when_clear_activity_button_is_clicked).pack(anchor="e")
     widgets["trace"] = tk.Text(activity_frame, height=13, wrap="none")
     widgets["trace"].pack(fill="both", expand=True)
+    root.bind("<<MobileStacksWake>>", handle_when_mobile_stacks_wake_event_arrives)
     root.protocol("WM_DELETE_WINDOW", handle_when_main_window_is_closed)
 
 
@@ -668,7 +671,6 @@ def main():
     g["root"] = tk.Tk()
     build_tk_interface()
     post_load_day()
-    schedule_tk_pump()
     g["root"].after(HEARTBEAT_INTERVAL_MS, handle_when_heartbeat_timer_fires)
     g["root"].mainloop()
 

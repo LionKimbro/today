@@ -67,10 +67,42 @@
     {
       "id": "ac8256af-d5e8-4186-b0ee-279c217bdc59",
       "date": "2026-09-03",
-      "title": "Mobile Stacks Refinement",
+      "title": "Mobile Stacks Refactor",
       "url": "https://chatgpt.com/c/6a98ff86-cf18-83e8-85da-19e6de49800c",
       "hook": "turning the naive Mobile Stacks implementation into a well-oiled machine",
       "description": "We also made it so that \"stacks\" have registers, as well, now.  They are kind of like little execution contexts that move around the system and are operated on by the next machine at the right place.\n\nThe main steps (search for \"Refactor stack\") were:\n1. Add stack-local named registers\n2. Move day into the stack register\n3. Eliminate MEM_RETURN_DAY\n4. Add progressive construction context\n5. Add serial() as sugar over the primitives.\n6. Convert the existing stack-building routines ot the progressive API.\n7. Naming pass -- Last"
+    },
+    {
+      "id": "81e537ed-6125-4e0a-b7c5-832026edc97c",
+      "date": "2026-09-03",
+      "title": "Mobile Stacks Refactor II",
+      "url": "https://chatgpt.com/c/6a9a622d-e968-83e8-bc3f-a0aa3f45d76c",
+      "hook": "simplifying after the \"programming language\" turn",
+      "description": "Dramatic Simplification -- \"Wide\" state (lots of register use,) \"restricted\" stack (just machine + entry point)"
+    },
+    {
+      "id": "47aa4478-419d-4275-bc9a-5c9d7c2370df",
+      "date": "2026-09-04",
+      "title": "Explain Mobile Stacks Script",
+      "url": "https://chatgpt.com/c/6a9a699e-28ac-83e8-aa39-cb72047e8e43",
+      "hook": "for reading 05_mobile-stacks.py",
+      "description": ""
+    },
+    {
+      "id": "13b90fee-bb11-46f1-86b7-9b1f0a9de5be",
+      "date": "2026-09-04",
+      "title": "Segregate the Tkinter Thread?",
+      "url": "https://chatgpt.com/c/6a9b46c2-e970-83e8-a769-11d5e6a72050",
+      "hook": "\"What if tkinter was its own thread, entirely?\"",
+      "description": "\"Tkinter should be treated not as the application framework, but as a thin I/O boundary owned by the main thread: it receives GUI events, converts semantic ones into data, and executes declarative UI commands.  Application meaning and decision-making live in a reducer core, which consumes events and produces state transitions plus effects for Tk, memory, disk, or other machines.  Reducer state and world memory should remain conceptually distinct, even if they initially live on the same thread.  This architecture makes Tk events, disk completions, memory results, timers, and remote responses all members of one unified event/effect model.  The key rule is: **the Tk thread owns the GUI device; the reducer owns meaning**, while purely local rendering mechanics need not cross that boundary.\""
+    },
+    {
+      "id": "b5a59a5c-88d9-4db4-8b17-9bc947d3ed22",
+      "date": "2026-09-05",
+      "title": "Formal Beginning on 07",
+      "url": "https://chatgpt.com/c/6a9cf89b-4860-83e8-8cd0-634dcd19a115",
+      "hook": "for working out the process for developing #07",
+      "description": ""
     }
   ]
 }
