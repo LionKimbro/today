@@ -9,3 +9,5 @@
 | Core → Tk | `SHUTDOWN_COMPLETE` | Tk may close. |
 
 `<<CoreMailAvailable>>` carries no application data: drain the Tk inbox.
+
+Core ↔ Mem uses Mobile Stacks, not these messages.

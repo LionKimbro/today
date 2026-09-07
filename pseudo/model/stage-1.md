@@ -1,6 +1,6 @@
 # Stage 1 world
 
-In Stage 2, `core.py` owns this world.
+In Stage 3, Mem canonically owns days and panels; Core owns the visible layout.
 
 **Path:** day → tab → position → hosted panel identity
 
