@@ -2,9 +2,6 @@
 
 from threading import local
 
-from . import mobile_stacks
-
-
 machines = {}
 thread_state = local()
 
@@ -25,21 +22,16 @@ def get_current_inbox():
     return get_current_runtime()["inbox"]
 
 
-def start_mobile_stack():
-    stack = mobile_stacks.create_stack()
-    get_current_runtime()["current-stack"] = stack
-    mobile_stacks.install_current_stack(stack)
-
-
 def handle_received_mobile_stack(stack):
     get_current_runtime()["current-stack"] = stack
-    mobile_stacks.install_current_stack(stack)
     handle_current_stack()
 
 
 def route_current_stack():
-    frame = mobile_stacks.get_top_frame()
-    stack = mobile_stacks.get_current_stack()
+    from . import mobile_stacks
+
+    frame = mobile_stacks.top()
+    stack = mobile_stacks.stack()
     print("Mobile Stack ->", frame["machine"], ":", frame["entry"])
     machines[frame["machine"]]["inbox"].put(stack)
     clear_current_stack()
@@ -47,11 +39,12 @@ def route_current_stack():
 
 def clear_current_stack():
     get_current_runtime()["current-stack"] = None
-    mobile_stacks.clear_current_stack()
 
 
 def handle_current_stack():
-    frame = mobile_stacks.get_top_frame()
+    from . import mobile_stacks
+
+    frame = mobile_stacks.top()
     runtime = get_current_runtime()
     assert frame["machine"] == runtime["name"]
     runtime["handlers"][frame["entry"]]()

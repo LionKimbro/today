@@ -46,7 +46,7 @@ def reduce_event(event):
 
 def dispatch_effect(effect):
     if effect["type"] == "GET_PANEL":
-        machine.start_mobile_stack()
+        mobile_stacks.create_stack()
         mobile_stacks.set_register(("panel-id", effect["panel-id"]))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "PANEL_RETURNED"})
         mobile_stacks.push_frame({"machine": "MEM", "entry": "GET_PANEL"})
