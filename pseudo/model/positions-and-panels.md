@@ -16,6 +16,8 @@
 
 Mem canonically owns `panels`, mapping a panel id to its record.
 
+Core may retain a visible panel snapshot; Mem remains canonical.
+
 | Field | Meaning |
 | --- | --- |
 | `id` | Panel identity |
