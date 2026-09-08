@@ -34,6 +34,10 @@ def get_register(key):
     return stack()["registers"][key]
 
 
+def has_register(key):
+    return key in stack()["registers"]
+
+
 def top():
     return stack()["frames"][-1]
 

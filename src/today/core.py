@@ -33,11 +33,43 @@ def reduce_event(event):
         print("Core reducer: PANEL_RECEIVED", event["panel-id"])
         return [{"type": "RENDER_TODAY"}]
 
+    if event["type"] == "HOST_PANEL":
+        return [
+            {
+                "type": "GET_PANEL",
+                "panel-id": event["panel-id"],
+                "position-id": event["position-id"],
+            }
+        ]
+
+    if event["type"] == "PANEL_FOR_HOSTING_RECEIVED":
+        visible_panels[event["panel-id"]] = dict(event["panel"])
+        positions[event["position-id"]]["panel-id"] = event["panel-id"]
+        print("Core reducer:", event["position-id"], "hosts", event["panel-id"])
+        return [{"type": "RENDER_HOSTED_PANEL", "position-id": event["position-id"]}]
+
     if event["type"] == "RENAME_PANEL":
         if event["panel-id"] not in visible_panels:
             return []
-        visible_panels[event["panel-id"]]["label"] = "renamed panel"
+        proposed_panel = dict(visible_panels[event["panel-id"]])
+        proposed_panel["label"] = "renamed panel"
+        return [
+            {
+                "type": "UPDATE_PANEL",
+                "panel-id": event["panel-id"],
+                "base-revision": visible_panels[event["panel-id"]]["revision"],
+                "proposed-panel": proposed_panel,
+            }
+        ]
+
+    if event["type"] == "PANEL_UPDATED":
+        visible_panels[event["panel-id"]] = dict(event["panel"])
+        print("Core reducer: PANEL_UPDATED", event["panel-id"], "revision", event["panel"]["revision"])
         return [{"type": "SET_PANEL_LABEL", "panel-id": event["panel-id"]}]
+
+    if event["type"] == "PANEL_UPDATE_CONFLICT":
+        print("Core reducer: PANEL_UPDATE_CONFLICT", event["panel-id"], "revision", event["panel"]["revision"])
+        return []
 
     if event["type"] == "SHUTDOWN":
         return [{"type": "STOP_CORE"}, {"type": "STOP_MEM"}, {"type": "SHUTDOWN_TK"}]
@@ -49,8 +81,21 @@ def dispatch_effect(effect):
     if effect["type"] == "GET_PANEL":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("panel-id", effect["panel-id"]))
+        if "position-id" in effect:
+            mobile_stacks.set_register(("position-id", effect["position-id"]))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "PANEL_RETURNED"})
         mobile_stacks.push_frame({"machine": "MEM", "entry": "GET_PANEL"})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "UPDATE_PANEL":
+        print("Reducer effect: UPDATE_PANEL", effect["panel-id"], "base-revision", effect["base-revision"])
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("panel-id", effect["panel-id"]))
+        mobile_stacks.set_register(("base-revision", effect["base-revision"]))
+        mobile_stacks.set_register(("proposed-panel", deepcopy(effect["proposed-panel"])))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "PANEL_UPDATED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "UPDATE_PANEL"})
         machine.route_current_stack()
         return
 
@@ -73,6 +118,19 @@ def dispatch_effect(effect):
         panel = visible_panels[effect["panel-id"]]
         g["send-tk-command"](
             {"type": "SET_PANEL_LABEL", "panel-id": panel["id"], "panel-label": panel["label"]}
+        )
+        return
+
+    if effect["type"] == "RENDER_HOSTED_PANEL":
+        position = positions[effect["position-id"]]
+        panel = visible_panels[position["panel-id"]]
+        g["send-tk-command"](
+            {
+                "type": "RENDER_HOSTED_PANEL",
+                "position-id": position["id"],
+                "panel-id": panel["id"],
+                "panel-label": panel["label"],
+            }
         )
         return
 
@@ -100,6 +158,17 @@ def process_reducer_events_until_quiet():
 def handle_when_core_receives_panel_return():
     panel_id = mobile_stacks.get_register("panel-id")
     print("Core stack return: PANEL_RETURNED", panel_id)
+    if mobile_stacks.has_register("position-id"):
+        g["reducer-events"].append(
+            {
+                "type": "PANEL_FOR_HOSTING_RECEIVED",
+                "position-id": mobile_stacks.get_register("position-id"),
+                "panel-id": panel_id,
+                "panel": deepcopy(mobile_stacks.get_register("panel")),
+            }
+        )
+        return
+
     g["reducer-events"].append(
         # The stack may continue elsewhere before this event is reduced.
         {
@@ -107,6 +176,20 @@ def handle_when_core_receives_panel_return():
             "panel-id": panel_id,
             "panel": deepcopy(mobile_stacks.get_register("panel")),
         }
+    )
+
+
+def handle_when_core_receives_panel_update():
+    panel_id = mobile_stacks.get_register("panel-id")
+    panel = deepcopy(mobile_stacks.get_register("panel"))
+    if mobile_stacks.get_register("update-result") == "accepted":
+        print("Core stack return: PANEL_UPDATED", panel_id, "revision", panel["revision"])
+        g["reducer-events"].append({"type": "PANEL_UPDATED", "panel-id": panel_id, "panel": panel})
+        return
+
+    print("Core stack return: PANEL_UPDATE_CONFLICT", panel_id, "revision", panel["revision"])
+    g["reducer-events"].append(
+        {"type": "PANEL_UPDATE_CONFLICT", "panel-id": panel_id, "panel": panel}
     )
 
 

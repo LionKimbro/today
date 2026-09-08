@@ -15,14 +15,20 @@ def main():
         "name": "CORE",
         "inbox": core_inbox,
         "current-stack": None,
-        "handlers": {"PANEL_RETURNED": core.handle_when_core_receives_panel_return},
+        "handlers": {
+            "PANEL_RETURNED": core.handle_when_core_receives_panel_return,
+            "PANEL_UPDATED": core.handle_when_core_receives_panel_update,
+        },
         "running": False,
     }
     mem_runtime = {
         "name": "MEM",
         "inbox": mem_inbox,
         "current-stack": None,
-        "handlers": {"GET_PANEL": mem.handle_when_mem_receives_get_panel},
+        "handlers": {
+            "GET_PANEL": mem.handle_when_mem_receives_get_panel,
+            "UPDATE_PANEL": mem.handle_when_mem_receives_update_panel,
+        },
         "running": False,
     }
     machine.install_machine(core_runtime)

@@ -86,6 +86,21 @@ PSEUDOCODE:
       route stack to target machine
 
 
+  == Stage 4 hosting ==
+
+  HOST_PANEL(position-id, panel-id)
+      -> GET_PANEL through Mem
+      -> PANEL_FOR_HOSTING_RECEIVED
+      -> position.panel-id = panel-id
+      -> targeted hosted-panel command to Tk
+
+
+  == Canonical panel update ==
+
+  RENAME_PANEL
+      -> UPDATE_PANEL effect with base revision and proposed panel
+      -> Mem accepts or conflicts
+      -> PANEL_UPDATED or PANEL_UPDATE_CONFLICT reducer event
 
 
 

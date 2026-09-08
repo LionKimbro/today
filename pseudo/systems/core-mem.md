@@ -8,3 +8,8 @@ before the runtime drops the frame and possibly forwards the stack again.
 
 Frames are stored bottom first: push `CORE / PANEL_RETURNED`, then
 `MEM / GET_PANEL`. The last frame executes first.
+
+For `HOST_PANEL`, the stack also carries `position-id`; Core changes hosting only
+after the panel returns.
+
+For `UPDATE_PANEL`, the stack carries `base-revision` and `proposed-panel`.

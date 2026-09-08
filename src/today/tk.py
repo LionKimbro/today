@@ -14,6 +14,7 @@ g = {
 
 widgets = {}
 panel_widgets = {}
+position_widgets = {}
 
 
 def build_today_window():
@@ -46,6 +47,14 @@ def build_today_window():
     widgets["panel"].rowconfigure(1, weight=1)
     widgets["position"] = ttk.Label(widgets["panel"])
     widgets["position"].grid(row=0, column=0, sticky="w")
+    widgets["panel-choice"] = ttk.Combobox(
+        widgets["panel"], values=("panel-1", "panel-2"), state="readonly"
+    )
+    widgets["panel-choice"].grid(row=0, column=0, sticky="e")
+    widgets["panel-choice"].bind(
+        "<<ComboboxSelected>>",
+        lambda event: handle_when_user_selects_hosted_panel("position-1"),
+    )
     widgets["panel-label"] = ttk.Label(widgets["panel"])
     widgets["panel-label"].grid(row=1, column=0)
     widgets["rename-button"] = ttk.Button(
@@ -56,6 +65,13 @@ def build_today_window():
 
 def handle_when_user_clicks_rename_panel_button(panel_id):
     g["outgoing-events"].put({"type": "RENAME_PANEL", "panel-id": panel_id})
+
+
+def handle_when_user_selects_hosted_panel(position_id):
+    panel_id = position_widgets[position_id]["choice"].get()
+    g["outgoing-events"].put(
+        {"type": "HOST_PANEL", "position-id": position_id, "panel-id": panel_id}
+    )
 
 
 def handle_when_user_requests_window_close():
@@ -79,11 +95,28 @@ def realize_core_command(command):
         widgets["position"].configure(text=command["position-id"])
         widgets["panel-label"].configure(text=command["panel-label"])
         panel_widgets[command["panel-id"]] = {"label": widgets["panel-label"]}
+        position_widgets[command["position-id"]] = {
+            "label": widgets["panel-label"],
+            "choice": widgets["panel-choice"],
+            "rename-button": widgets["rename-button"],
+        }
+        widgets["position"].configure(text=f"{command['position-id']} hosts:")
+        widgets["panel-choice"].set(command["panel-id"])
         widgets["rename-button"].configure(
             command=lambda: handle_when_user_clicks_rename_panel_button(command["panel-id"])
         )
         if not g["closing"]:
             widgets["rename-button"].state(["!disabled"])
+        return
+
+    if command["type"] == "RENDER_HOSTED_PANEL":
+        position = position_widgets[command["position-id"]]
+        position["label"].configure(text=command["panel-label"])
+        position["choice"].set(command["panel-id"])
+        position["rename-button"].configure(
+            command=lambda: handle_when_user_clicks_rename_panel_button(command["panel-id"])
+        )
+        panel_widgets[command["panel-id"]] = {"label": position["label"]}
         return
 
     if command["type"] == "SET_PANEL_LABEL":
