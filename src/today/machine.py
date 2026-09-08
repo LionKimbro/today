@@ -23,6 +23,8 @@ def get_current_inbox():
 
 
 def handle_received_mobile_stack(stack):
+    if get_current_runtime()["current-stack"] is not None:
+        raise RuntimeError("cannot receive a stack while another stack is active")
     get_current_runtime()["current-stack"] = stack
     handle_current_stack()
 
@@ -33,8 +35,9 @@ def route_current_stack():
     frame = mobile_stacks.top()
     stack = mobile_stacks.stack()
     print("Mobile Stack ->", frame["machine"], ":", frame["entry"])
-    machines[frame["machine"]]["inbox"].put(stack)
+    inbox = machines[frame["machine"]]["inbox"]
     clear_current_stack()
+    inbox.put(stack)
 
 
 def clear_current_stack():
@@ -46,7 +49,8 @@ def handle_current_stack():
 
     frame = mobile_stacks.top()
     runtime = get_current_runtime()
-    assert frame["machine"] == runtime["name"]
+    if frame["machine"] != runtime["name"]:
+        raise RuntimeError(f"frame for {frame['machine']} received by {runtime['name']}")
     runtime["handlers"][frame["entry"]]()
     mobile_stacks.drop_frame()
 

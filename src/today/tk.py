@@ -49,13 +49,13 @@ def build_today_window():
     widgets["panel-label"] = ttk.Label(widgets["panel"])
     widgets["panel-label"].grid(row=1, column=0)
     widgets["rename-button"] = ttk.Button(
-        widgets["panel"], text="Rename panel", command=handle_when_user_clicks_rename_panel_button
+        widgets["panel"], text="Rename panel", state="disabled"
     )
     widgets["rename-button"].grid(row=2, column=0, pady=(16, 0))
 
 
-def handle_when_user_clicks_rename_panel_button():
-    g["outgoing-events"].put({"type": "RENAME_PANEL", "panel-id": "panel-1"})
+def handle_when_user_clicks_rename_panel_button(panel_id):
+    g["outgoing-events"].put({"type": "RENAME_PANEL", "panel-id": panel_id})
 
 
 def handle_when_user_requests_window_close():
@@ -79,6 +79,11 @@ def realize_core_command(command):
         widgets["position"].configure(text=command["position-id"])
         widgets["panel-label"].configure(text=command["panel-label"])
         panel_widgets[command["panel-id"]] = {"label": widgets["panel-label"]}
+        widgets["rename-button"].configure(
+            command=lambda: handle_when_user_clicks_rename_panel_button(command["panel-id"])
+        )
+        if not g["closing"]:
+            widgets["rename-button"].state(["!disabled"])
         return
 
     if command["type"] == "SET_PANEL_LABEL":

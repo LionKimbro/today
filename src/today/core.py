@@ -1,12 +1,12 @@
 """The Core machine: reducer state, effects, and returned Mobile Stacks."""
 
+from copy import deepcopy
 from datetime import date
 
 from . import machine, mobile_stacks
 
 
 g = {
-    "running": False,
     "today-id": None,
     "send-tk-command": None,
     "reducer-events": [],
@@ -34,12 +34,13 @@ def reduce_event(event):
         return [{"type": "RENDER_TODAY"}]
 
     if event["type"] == "RENAME_PANEL":
+        if event["panel-id"] not in visible_panels:
+            return []
         visible_panels[event["panel-id"]]["label"] = "renamed panel"
         return [{"type": "SET_PANEL_LABEL", "panel-id": event["panel-id"]}]
 
     if event["type"] == "SHUTDOWN":
-        g["running"] = False
-        return [{"type": "STOP_MEM"}, {"type": "SHUTDOWN_TK"}]
+        return [{"type": "STOP_CORE"}, {"type": "STOP_MEM"}, {"type": "SHUTDOWN_TK"}]
 
     return []
 
@@ -75,6 +76,10 @@ def dispatch_effect(effect):
         )
         return
 
+    if effect["type"] == "STOP_CORE":
+        machine.get_current_runtime()["running"] = False
+        return
+
     if effect["type"] == "STOP_MEM":
         machine.machines["MEM"]["inbox"].put(None)
         return
@@ -96,22 +101,27 @@ def handle_when_core_receives_panel_return():
     panel_id = mobile_stacks.get_register("panel-id")
     print("Core stack return: PANEL_RETURNED", panel_id)
     g["reducer-events"].append(
-        {"type": "PANEL_RECEIVED", "panel-id": panel_id, "panel": mobile_stacks.get_register("panel")}
+        # The stack may continue elsewhere before this event is reduced.
+        {
+            "type": "PANEL_RECEIVED",
+            "panel-id": panel_id,
+            "panel": deepcopy(mobile_stacks.get_register("panel")),
+        }
     )
 
 
 def run_reducer_core():
     machine.claim_machine("CORE")
     initialize_core_state()
-    g["running"] = True
+    runtime = machine.get_current_runtime()
+    runtime["running"] = True
     g["reducer-events"].append({"type": "START"})
     process_reducer_events_until_quiet()
 
-    while g["running"]:
+    while runtime["running"]:
         item = machine.get_current_inbox().get()
         if item is None:
-            g["running"] = False
-            break
+            item = {"type": "SHUTDOWN"}
 
         if mobile_stacks.is_mobile_stack(item):
             machine.handle_received_mobile_stack(item)

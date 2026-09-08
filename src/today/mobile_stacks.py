@@ -4,6 +4,8 @@ from . import machine
 
 
 def create_stack():
+    if stack() is not None:
+        raise RuntimeError("cannot create a stack while another stack is active")
     machine.get_current_runtime()["current-stack"] = {
         "kind": "MOBILE_STACK",
         "frames": [],

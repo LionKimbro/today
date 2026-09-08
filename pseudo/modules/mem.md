@@ -2,4 +2,5 @@
 
 OWNS: canonical in-memory `days` and `panels`.
 
-`GET_PANEL` places the requested panel record in the current stack registers.
+`GET_PANEL` deep-copies the requested panel into the current stack registers.
+The canonical record stays owned by Mem, including nested mutable data.

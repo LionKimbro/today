@@ -8,6 +8,13 @@ OWNS:
   declarative Tk commands
   Core lifecycle
 
+Lifecycle uses the claimed runtime's `running` field. `None` in the Core inbox
+becomes `SHUTDOWN`, whose effects stop Core, send Mem its sentinel, and allow
+Tk to close. This does not drain outstanding return stacks.
+
+An unloaded panel cannot be renamed. Rename currently changes only the active
+Core copy; there is no canonical commit operation in Stage 3.
+
 READS:
   plain Tk semantic events
   Mobile Stacks addressed to CORE
@@ -37,7 +44,7 @@ PSEUDOCODE:
           entry = ...
   
       translate:
-          stack entry + relevant registers
+          stack entry + independent copies of retained register data
               -> ordinary Reducer event
   
       enqueue Reducer event
@@ -77,7 +84,6 @@ PSEUDOCODE:
       set registers
       push appropriate frames
       route stack to target machine
-
 
 
 

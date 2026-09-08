@@ -1,5 +1,6 @@
 """The Mem machine: the small canonical in-memory store."""
 
+from copy import deepcopy
 from datetime import date
 
 from . import machine, mobile_stacks
@@ -17,7 +18,7 @@ def initialize_mem_store():
 def handle_when_mem_receives_get_panel():
     panel_id = mobile_stacks.get_register("panel-id")
     print("Mem GET_PANEL:", panel_id)
-    mobile_stacks.set_register(("panel", panels[panel_id]))
+    mobile_stacks.set_register(("panel", deepcopy(panels[panel_id])))
 
 
 def run_mem_machine():
