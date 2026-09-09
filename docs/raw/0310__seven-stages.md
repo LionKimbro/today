@@ -339,6 +339,9 @@ The point is that you're finding the boundary experimentally.
 
 # Stage 7 — Then absorb `03`
 
+For more information, see
+[0330 — Six steps of incorporating 07](0330__six-steps-of-incorporating-07.md).
+
 And **this is where I would bring the beautiful body back**.
 
 At this point you already have:
