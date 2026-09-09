@@ -1,55 +1,13 @@
-The history of the project is in 0240__how-the-fuck-we-got-here.md.
+2026-09-06  1:26a
+  We are working on 07 per the steps in "How do I proceed to 07?"  
+  In Codex/ChatGPT, the conversation is "[ ] Build /src/today/"
 
-We're going to kick off #07 with a special model:
-
-                                  (bounded present state)  (canonical, world model)
-				          \                 /
-  main/tkinter <== Special Queues ==> reducer-core ----- mem
-                                                  \      /
-                                                MOBILE STACKS
-  The "Special Queues" are for just                 \  /
-  relaying tk events to the reducer-core,            \/
-  and relaying tk commands to the main/             disk
-  tkinter thread.
-  
-  Mobile Stacks are NOT used for communication between main/tkinter,
-  and the reducer-core thread.
-
-  Mobile Stacks are issued from reducer core effects,
-  and issue to reducer-core events.
-
-  The Law:
--------------------
-Tk → Core queue: normalized semantic UI events only; never raw Tk objects or widget references.
-Core → Tk queue: declarative Tk commands/snapshots only; never arbitrary callbacks from another thread.
-Reducer commits next_state before processing its effects.
-Effects may start Mobile Stacks.
-A returning stack does not start another stack while active. Its Core handler queues a normal result event, then completes the stack.
-Mem remains the canonical world model; the Core holds only bounded present/on-screen state.
--------------------
-
-Open questions:
--------------------
-What exactly belongs in bounded Core state?
-Is active-day layout a Core snapshot, Mem data, or a careful split?
-What panel data is visible snapshot data versus Mem-only canonical data?
-Where does each panel type’s semantic logic live?
-Which crossings deserve stacks, and which deserve simple queues?
-  -- NO, we have the answer to this:
-     tkinter?  simple queues.
-     work? mobile stacks.
-What is the smallest declarative Tk command vocabulary that preserves the
-rich layout system?
-  -- rough answer: "a semantic one"
--------------------
-
-IMPORT_PANEL
-EXPORT_PANEL
-CREATE_PANEL
-
-{"id": "...", "type": "JOURNAL", "day": "...", "data": {...}, "revision": #}
-
-reduce_journal_ui(core_state, event)
-reduce_whiteboard_ui(core_state, event)
-reduce_todo_ui(core_state, event)
-
+Stages:  -- 3rd notch down;   https://chatgpt.com/c/6a9cf89b-4860-83e8-8cd0-634dcd19a115
+------                                        "I would grow it in this order"
+1 - [X] - Permanent Skeleton
+2 - [X] - Tk <==> Core
+3 - [X] - Add Mem and Mobile Stacks as a second independent artery
+4 - [X] - Make panel hosting real
+5 - [ ] - Introduce exactly x2 Witeboards
+6 - [ ] - Only then give Whiteboard its history behavior
+7 - [ ] - ABSORB 03

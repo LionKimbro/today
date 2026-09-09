@@ -99,9 +99,25 @@
     {
       "id": "b5a59a5c-88d9-4db4-8b17-9bc947d3ed22",
       "date": "2026-09-05",
-      "title": "Formal Beginning on 07",
+      "title": "How do I proceed to 07?",
       "url": "https://chatgpt.com/c/6a9cf89b-4860-83e8-8cd0-634dcd19a115",
       "hook": "for working out the process for developing #07",
+      "description": ""
+    },
+    {
+      "id": "81154d2b-036a-4a1a-b261-3dd900c56438",
+      "date": "2026-09-07",
+      "title": "07 Architecture Diagram",
+      "url": "https://grok.com/c/d965a594-92a3-49aa-bac7-e350ac09cb90",
+      "hook": "Good Architecture Diagram, via Grok",
+      "description": "also -- failed diagram with Gemini:\n  https://gemini.google.com/app/8283b8c6de99d030\nOK diagram with Chat-GPT:\n  https://chatgpt.com/c/6a9f64a0-dea8-83e8-a62c-a955c00eff42"
+    },
+    {
+      "id": "0f0aa9ed-8d8c-4c0c-8604-2464c9c7bdfa",
+      "date": "2026-09-09",
+      "title": "Dark Mode",
+      "url": "https://chatgpt.com/c/6aa1c9a3-72f4-83e8-bfac-b60f031fd234",
+      "hook": "",
       "description": ""
     }
   ]
