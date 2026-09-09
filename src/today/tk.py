@@ -62,7 +62,8 @@ def build_today_window():
         "Page.TNotebook.Tab",
         background=COLORS["top"],
         foreground=COLORS["secondary-text"],
-        padding=(16, 7),
+        width=5,
+        padding=(8, 5),
     )
     style.map(
         "Page.TNotebook.Tab",
@@ -174,6 +175,7 @@ def handle_when_user_selects_tab(event):
     for tab_id, tab in tab_widgets.items():
         if str(tab["page"]) == page:
             g["outgoing-events"].put({"type": "SELECT_TAB", "tab-id": tab_id})
+            g["root"].after_idle(update_global_status_from_visible_whiteboard)
             return
 
 
@@ -328,6 +330,7 @@ def select_tab(tab_id):
 
 def handle_after_selecting_tab():
     g["selecting-tab"] = False
+    update_global_status_from_visible_whiteboard()
 
 
 def make_row_rail_button(button):
@@ -479,20 +482,14 @@ def clear_position_host(position_id):
 def render_empty_position(command):
     position = position_widgets[command["position-id"]]
     host = position["host"]
-    host.columnconfigure(1, weight=1)
-    tkinter.Frame(host, background=COLORS["accent-green"], width=5).grid(
-        row=0, column=0, rowspan=2, sticky="ns", padx=(0, 12)
-    )
-    ttk.Label(host, text=command["position-id"], style="PanelTitle.TLabel").grid(
-        row=0, column=1, sticky="w"
-    )
+    host.columnconfigure(0, weight=1)
     choice = ttk.Combobox(
         host,
         values=command["available-panel-ids"],
         state="readonly",
         style="Dark.TCombobox",
     )
-    choice.grid(row=1, column=1, sticky="ew", pady=(14, 0))
+    choice.grid(row=0, column=0, sticky="ew")
     choice.set("Choose existing panel")
     choice.bind(
         "<<ComboboxSelected>>",
@@ -508,20 +505,37 @@ def render_hosted_panel(command):
     host = position["host"]
     position["panel-id"] = command["panel-id"]
     host.columnconfigure(1, weight=1)
-    host.rowconfigure(2, weight=1)
+    host.rowconfigure(1, weight=1)
 
     tkinter.Frame(
         host,
         background=get_panel_accent(command["panel-id"]),
         width=5,
-    ).grid(row=0, column=0, rowspan=4, sticky="ns", padx=(0, 12))
-    ttk.Label(host, text=f"{command['position-id']} hosts:", style="PanelTitle.TLabel").grid(
-        row=0, column=1, sticky="w"
-    )
-    label = ttk.Label(host, text=command["panel-label"], style="Panel.TLabel")
-    label.grid(row=1, column=1, sticky="w", pady=(14, 0))
-    snapshot_button = tkinter.Button(
+    ).grid(row=0, column=0, sticky="ns", padx=(0, 12))
+    label = ttk.Label(host, text=command["panel-label"], style="PanelTitle.TLabel")
+    label.grid(row=0, column=1, sticky="w")
+    unhost_button = tkinter.Button(
         host,
+        text="x",
+        background=COLORS["control"],
+        foreground=COLORS["secondary-text"],
+        activebackground=COLORS["divider"],
+        activeforeground=COLORS["primary-text"],
+        relief="flat",
+        borderwidth=0,
+        width=2,
+        padx=2,
+        pady=3,
+        command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(
+            position_id
+        ),
+    )
+    unhost_button.grid(row=0, column=2, sticky="e")
+    controls = tkinter.Frame(host, background=COLORS["panel"])
+    controls.grid(row=1, column=2, sticky="ns", padx=(12, 0), pady=(14, 0))
+    controls.rowconfigure(1, weight=1)
+    snapshot_button = tkinter.Button(
+        controls,
         text="Snapshot",
         background=COLORS["accent-blue"],
         foreground=COLORS["primary-text"],
@@ -533,23 +547,7 @@ def render_hosted_panel(command):
         pady=6,
         command=lambda panel_id=command["panel-id"]: handle_when_user_clicks_snapshot_button(panel_id),
     )
-    snapshot_button.grid(row=1, column=2, sticky="e", pady=(14, 0))
-    unhost_button = tkinter.Button(
-        host,
-        text="Unhost panel",
-        background=COLORS["control"],
-        foreground=COLORS["secondary-text"],
-        activebackground=COLORS["divider"],
-        activeforeground=COLORS["primary-text"],
-        relief="flat",
-        borderwidth=0,
-        padx=10,
-        pady=4,
-        command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(
-            position_id
-        ),
-    )
-    unhost_button.grid(row=0, column=2, sticky="e")
+    snapshot_button.grid(row=0, column=0, sticky="ew")
     text = tkinter.Text(
         host,
         height=10,
@@ -565,13 +563,13 @@ def render_hosted_panel(command):
         highlightbackground=COLORS["border"],
         highlightcolor=COLORS["accent-blue"],
     )
-    text.grid(row=2, column=1, sticky="nsew", pady=(18, 0))
+    text.grid(row=1, column=1, sticky="nsew", pady=(14, 0))
     text.bind(
         "<<Modified>>",
         lambda event, panel_id=command["panel-id"]: handle_when_text_widget_changes(event, panel_id),
     )
     history_slider = tkinter.Scale(
-        host,
+        controls,
         from_=0,
         to=0,
         orient="vertical",
@@ -587,9 +585,7 @@ def render_hosted_panel(command):
         borderwidth=0,
         sliderrelief="flat",
     )
-    history_slider.grid(row=2, column=2, sticky="ns", padx=(12, 0), pady=(18, 0))
-    history_status = ttk.Label(host, text="Current working version", style="Panel.TLabel")
-    history_status.grid(row=3, column=1, sticky="w", pady=(10, 0))
+    history_slider.grid(row=1, column=0, sticky="ns", pady=(10, 0))
 
     g["rendering-text"] = True
     text.insert("1.0", command["panel-text"])
@@ -599,7 +595,7 @@ def render_hosted_panel(command):
         "label": label,
         "text": text,
         "history-slider": history_slider,
-        "history-status": history_status,
+        "history-status": command["history-status"],
     }
     position["panel-widgets"] = panel
     panel_widgets.setdefault(command["panel-id"], []).append(panel)
@@ -625,8 +621,17 @@ def render_whiteboard_history_controls(command):
     for panel in panel_widgets[command["panel-id"]]:
         panel["history-slider"].configure(to=command["history-size"])
         panel["history-slider"].set(command["history-cursor"])
-        panel["history-status"].configure(text=command["history-status"])
+        panel["history-status"] = command["history-status"]
     g["rendering-history"] = False
+    g["root"].after_idle(update_global_status_from_visible_whiteboard)
+
+
+def update_global_status_from_visible_whiteboard():
+    for panels in panel_widgets.values():
+        for panel in panels:
+            if panel["text"].winfo_ismapped():
+                widgets["status"].configure(text=panel["history-status"])
+                return
 
 
 def handle_when_core_mail_arrives(event):
