@@ -105,7 +105,13 @@ def reduce_event(event):
     if event["type"] == "PANEL_FOR_HOSTING_RECEIVED":
         panel = visible_panels.get(event["panel-id"])
         if panel is None or not panel["dirty"]:
+            history_cursor = None if panel is None else panel["history-cursor"]
             install_panel_snapshot(event["panel"])
+            if history_cursor is not None:
+                visible_panels[event["panel-id"]]["history-cursor"] = min(
+                    history_cursor,
+                    len(visible_panels[event["panel-id"]]["history"]),
+                )
         positions[event["position-id"]]["panel-id"] = event["panel-id"]
         print("Core reducer:", event["position-id"], "hosts", event["panel-id"])
         return [{"type": "RENDER_HOSTED_PANEL", "position-id": event["position-id"]}]
