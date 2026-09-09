@@ -14,14 +14,56 @@ g = {
 }
 
 tabs = {}
+rows = {}
 positions = {}
 visible_panels = {}
 
 
 def initialize_core_state():
     g["today-id"] = date.today().isoformat()
-    tabs["tab-a"] = {"id": "tab-a", "label": "Tab A", "position-ids": ["position-1"]}
-    positions["position-1"] = {"id": "position-1", "tab-id": "tab-a", "panel-id": "whiteboard-a"}
+    tabs["tab-a"] = {"id": "tab-a", "label": "Tab A", "row-ids": ["row-a", "row-b"]}
+    rows["row-a"] = {"id": "row-a", "tab-id": "tab-a", "column-count": 2}
+    rows["row-b"] = {"id": "row-b", "tab-id": "tab-a", "column-count": 1}
+    positions["row-a/column-1"] = {"panel-id": "whiteboard-a"}
+    positions["row-a/column-2"] = {"panel-id": None}
+    positions["row-b/column-1"] = {"panel-id": None}
+
+
+def get_position_id(row_id, column):
+    return f"{row_id}/column-{column}"
+
+
+def get_position_rendering(position_id):
+    panel_id = positions[position_id]["panel-id"]
+    if panel_id is None:
+        return {"position-id": position_id, "panel-id": None}
+
+    panel = visible_panels[panel_id]
+    return {
+        "position-id": position_id,
+        "panel-id": panel["id"],
+        "panel-label": panel["label"],
+        "panel-type": panel["type"],
+        **get_whiteboard_view(panel),
+    }
+
+
+def get_tab_rendering(tab_id):
+    tab = tabs[tab_id]
+    return {
+        "tab-label": tab["label"],
+        "rows": [
+            {
+                "row-id": row_id,
+                "column-count": rows[row_id]["column-count"],
+                "positions": [
+                    get_position_rendering(get_position_id(row_id, column))
+                    for column in range(1, rows[row_id]["column-count"] + 1)
+                ],
+            }
+            for row_id in tab["row-ids"]
+        ],
+    }
 
 
 def install_panel_snapshot(panel):
@@ -226,18 +268,11 @@ def dispatch_effect(effect):
         return
 
     if effect["type"] == "RENDER_TODAY":
-        position = positions["position-1"]
-        panel = visible_panels[position["panel-id"]]
         g["send-tk-command"](
             {
                 "type": "RENDER_TODAY",
                 "today-id": g["today-id"],
-                "tab-label": tabs["tab-a"]["label"],
-                "position-id": position["id"],
-                "panel-id": panel["id"],
-                "panel-label": panel["label"],
-                "panel-type": panel["type"],
-                **get_whiteboard_view(panel),
+                **get_tab_rendering("tab-a"),
             }
         )
         return
@@ -250,16 +285,10 @@ def dispatch_effect(effect):
         return
 
     if effect["type"] == "RENDER_HOSTED_PANEL":
-        position = positions[effect["position-id"]]
-        panel = visible_panels[position["panel-id"]]
         g["send-tk-command"](
             {
                 "type": "RENDER_HOSTED_PANEL",
-                "position-id": position["id"],
-                "panel-id": panel["id"],
-                "panel-label": panel["label"],
-                "panel-type": panel["type"],
-                **get_whiteboard_view(panel),
+                **get_position_rendering(effect["position-id"]),
             }
         )
         return

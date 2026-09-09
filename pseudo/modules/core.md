@@ -95,6 +95,16 @@ PSEUDOCODE:
       -> targeted hosted-panel command to Tk
 
 
+  == Stage 7B fixed geometry ==
+
+  tab-a owns ordered row ids
+  each row has column-count 1, 2, or 3
+  position id = row-id + "/column-" + logical column
+
+  positions[position-id].panel-id may be null
+  RENDER_TODAY carries the complete fixed row/position structure
+
+
   == Canonical panel update ==
 
   RENAME_PANEL
@@ -114,4 +124,3 @@ PSEUDOCODE:
   HISTORY_CURSOR_CHANGED changes only the viewed version.
   First TEXT_CHANGED away from HEAD snapshots HEAD, promotes the edited viewed
   text to HEAD, and returns the cursor to HEAD.
-

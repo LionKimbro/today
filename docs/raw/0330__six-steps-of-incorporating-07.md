@@ -13,7 +13,8 @@ yet. Prove Core-defined positions can host panels in the new shape.
 
 ## 7C — Multiple hosted panels
 
-Let several visible positions independently host and retain panels.
+Move day/tab/row/position records into Mem, then let several visible positions
+independently host and retain panels.
 
 ## 7D — Tabs, rows, and panes
 

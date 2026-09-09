@@ -9,7 +9,7 @@
 | Tk → Core | `HISTORY_CURSOR_CHANGED`, `panel-id`, `history-cursor` | View HEAD or a snapshot. |
 | Tk → Core | `SNAPSHOT`, `panel-id` | Preserve the current HEAD. |
 | Tk → Core | `SHUTDOWN` | Stop Core cleanly. |
-| Core → Tk | `RENDER_TODAY`, visible world fields | Reconcile the initial/current structure. |
+| Core → Tk | `RENDER_TODAY`, tab plus ordered rows/positions | Reconcile the initial/current structure. |
 | Core → Tk | `SET_PANEL_LABEL`, `panel-id`, `panel-label` | Update one panel's visible label. |
 | Core → Tk | `RENDER_HOSTED_PANEL`, `position-id`, panel fields | Update one position's hosted panel. |
 | Core → Tk | `RENDER_WHITEBOARD_VIEW`, panel view fields | Replace the editor with the selected version. |

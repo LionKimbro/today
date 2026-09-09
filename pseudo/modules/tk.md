@@ -16,3 +16,6 @@ Core to select or snapshot a version; Tk does not interpret history.
 
 Rename stays disabled until Core renders the panel. Its callback uses the
 rendered panel identity. A late render does not re-enable it during closing.
+
+Stage 7B builds Core's fixed rows and positions. A hosted position builds its
+panel controls; an unhosted position visibly says it is empty.
