@@ -4,6 +4,8 @@
 | --- | --- | --- |
 | Tk → Core | `RENAME_PANEL`, `panel-id` | Rename this panel. |
 | Tk → Core | `HOST_PANEL`, `position-id`, `panel-id` | Request that a position host an existing panel. |
+| Tk → Core | `TEXT_CHANGED`, `panel-id`, `text` | Replace Core's working text snapshot. |
+| Tk → Core | `TEXT_DEBOUNCE`, `panel-id` | Text input rested; Core may flush it. |
 | Tk → Core | `SHUTDOWN` | Stop Core cleanly. |
 | Core → Tk | `RENDER_TODAY`, visible world fields | Reconcile the initial/current structure. |
 | Core → Tk | `SET_PANEL_LABEL`, `panel-id`, `panel-label` | Update one panel's visible label. |

@@ -21,7 +21,9 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 | Field | Meaning |
 | --- | --- |
 | `id` | Panel identity |
+| `type` | Panel kind: currently `WHITEBOARD` |
 | `label` | Visible label |
+| `text` | Whiteboard contents |
 | `revision` | Canonical update revision |
 
 ## Hosting
@@ -29,3 +31,6 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 `position["panel-id"]` names the panel hosted by that position.
 
 Changing the field changes hosting. The position and both panel records remain.
+
+Core's snapshot may additionally hold `dirty`, `awaiting`, `edit-generation`,
+and `save-generation`. Those are working facts, never canonical Mem fields.

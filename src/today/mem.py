@@ -12,8 +12,20 @@ panels = {}
 def initialize_mem_store():
     today_id = date.today().isoformat()
     days[today_id] = {"id": today_id}
-    panels["panel-1"] = {"id": "panel-1", "label": "panel-1", "revision": 1}
-    panels["panel-2"] = {"id": "panel-2", "label": "panel-2", "revision": 1}
+    panels["whiteboard-a"] = {
+        "id": "whiteboard-a",
+        "type": "WHITEBOARD",
+        "label": "Whiteboard A",
+        "text": "",
+        "revision": 1,
+    }
+    panels["whiteboard-b"] = {
+        "id": "whiteboard-b",
+        "type": "WHITEBOARD",
+        "label": "Whiteboard B",
+        "text": "",
+        "revision": 1,
+    }
 
 
 def handle_when_mem_receives_get_panel():

@@ -103,4 +103,9 @@ PSEUDOCODE:
       -> PANEL_UPDATED or PANEL_UPDATE_CONFLICT reducer event
 
 
+  == Stage 5 Whiteboards ==
+
+  TEXT_CHANGED updates a Core working snapshot and marks it dirty.
+  TEXT_DEBOUNCE may emit UPDATE_PANEL. Mem acceptance clears the dirty state.
+
 
