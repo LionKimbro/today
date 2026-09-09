@@ -9,6 +9,7 @@ The canonical record stays owned by Mem, including nested mutable data.
 `UNHOST_PANEL` canonically change only `positions[position-id]["panel-id"]`.
 `SELECT_TAB` canonically changes `days[day-id]["selected-tab-id"]`.
 `SET_ROW_HEIGHT` and `SET_SASH_PROPORTIONS` canonically change one row.
+`MOVE_ROW` canonically reorders a tab's row ids.
 
 Stage 7C seeds `whiteboard-a`, `whiteboard-b`, and unhosted `whiteboard-c`.
 

@@ -228,6 +228,20 @@ def reduce_event(event):
             return [{"type": "SET_ROW_HEIGHT", "row-id": event["row"]["id"]}]
         return [{"type": "SET_SASH_PROPORTIONS", "row-id": event["row"]["id"]}]
 
+    if event["type"] == "MOVE_ROW":
+        return [
+            {
+                "type": "MOVE_ROW",
+                "tab-id": event["tab-id"],
+                "row-id": event["row-id"],
+                "direction": event["direction"],
+            }
+        ]
+
+    if event["type"] == "TAB_LAYOUT_CHANGED":
+        tabs[event["tab"]["id"]] = event["tab"]
+        return [{"type": "RENDER_TODAY"}]
+
     if event["type"] == "PANEL_FOR_HOSTING_RECEIVED":
         panel = visible_panels.get(event["panel-id"])
         if panel is None or not panel["dirty"]:
@@ -403,6 +417,16 @@ def dispatch_effect(effect):
         machine.route_current_stack()
         return
 
+    if effect["type"] == "MOVE_ROW":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("tab-id", effect["tab-id"]))
+        mobile_stacks.set_register(("row-id", effect["row-id"]))
+        mobile_stacks.set_register(("direction", effect["direction"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "TAB_LAYOUT_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "MOVE_ROW"})
+        machine.route_current_stack()
+        return
+
     if effect["type"] == "UNHOST_PANEL":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("position-id", effect["position-id"]))
@@ -567,6 +591,12 @@ def handle_when_core_receives_row_layout():
             "row": deepcopy(mobile_stacks.get_register("row")),
             "layout-change": mobile_stacks.get_register("layout-change"),
         }
+    )
+
+
+def handle_when_core_receives_tab_layout():
+    g["reducer-events"].append(
+        {"type": "TAB_LAYOUT_CHANGED", "tab": deepcopy(mobile_stacks.get_register("tab"))}
     )
 
 

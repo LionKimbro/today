@@ -27,5 +27,6 @@ resulting layout meaning.
 
 ## 7F — Rearrangement
 
-Add dragging or moving positions or panels only after the stable geometry and
-hosting model are solid.
+Add row rearrangement after the stable geometry and hosting model are solid.
+Moving a row preserves its positions and hosted panels; panel moves remain
+explicit unhost-then-host operations.

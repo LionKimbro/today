@@ -126,6 +126,12 @@ PSEUDOCODE:
   -> Core sends targeted Tk geometry command
 
 
+  == Stage 7F row movement ==
+
+  MOVE_ROW -> Mem changes tab.row-ids
+  -> Core reconciles the structurally changed day workspace
+
+
   == Canonical panel update ==
 
   RENAME_PANEL

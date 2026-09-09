@@ -5,6 +5,19 @@ from queue import Empty
 from tkinter import ttk
 
 
+COLORS = {
+    "top": "#081525",
+    "row-controls": "#0B1A2B",
+    "row-controls-hover": "#17304A",
+    "row-controls-text": "#B8C4D0",
+    "middle": "#10243A",
+    "panel": "#F3F6F8",
+    "panel-text": "#162332",
+    "separator": "#35516B",
+    "status": "#0B1828",
+    "status-text": "#D7E2EC",
+}
+
 g = {
     "root": None,
     "closing": False,
@@ -27,24 +40,68 @@ def build_today_window():
     g["root"] = tkinter.Tk()
     g["root"].title("Today")
     g["root"].minsize(700, 500)
+    g["root"].geometry("1100x760")
+    g["root"].configure(background=COLORS["middle"])
     g["root"].protocol("WM_DELETE_WINDOW", handle_when_user_requests_window_close)
     g["root"].bind("<<CoreMailAvailable>>", handle_when_core_mail_arrives)
 
-    content = ttk.Frame(g["root"], padding=20)
-    content.grid(sticky="nsew")
+    style = ttk.Style(g["root"])
+    style.configure("Page.TNotebook", background=COLORS["middle"], borderwidth=0)
+    style.configure(
+        "Page.TNotebook.Tab",
+        background="#FFFFFF",
+        foreground=COLORS["panel-text"],
+        padding=(12, 5),
+    )
+    style.map(
+        "Page.TNotebook.Tab",
+        background=[("selected", "#FFFFFF"), ("active", "#F7FAFC")],
+        foreground=[("selected", COLORS["panel-text"]), ("active", COLORS["panel-text"])],
+    )
+    style.configure("Panel.TFrame", background=COLORS["panel"])
+    style.configure("Panel.TLabel", background=COLORS["panel"], foreground=COLORS["panel-text"])
+    style.configure(
+        "PanelTitle.TLabel",
+        background=COLORS["panel"],
+        foreground=COLORS["panel-text"],
+        font=("TkDefaultFont", 10, "bold"),
+    )
+
     g["root"].columnconfigure(0, weight=1)
-    g["root"].rowconfigure(0, weight=1)
-    content.columnconfigure(0, weight=1)
-    content.rowconfigure(2, weight=1)
+    g["root"].rowconfigure(1, weight=1)
 
-    widgets["title"] = ttk.Label(content, text="Today", font=("TkDefaultFont", 18, "bold"))
-    widgets["title"].grid(row=0, column=0, sticky="w")
-    widgets["date"] = ttk.Label(content)
-    widgets["date"].grid(row=1, column=0, sticky="w", pady=(12, 12))
+    top = tkinter.Frame(g["root"], background=COLORS["top"], padx=12, pady=10)
+    top.grid(row=0, column=0, sticky="ew")
+    widgets["title"] = tkinter.Label(
+        top,
+        text="Today",
+        background=COLORS["top"],
+        foreground=COLORS["status-text"],
+        font=("TkDefaultFont", 18, "bold"),
+    )
+    widgets["title"].pack(side="left")
+    widgets["date"] = tkinter.Label(
+        top,
+        background=COLORS["top"],
+        foreground=COLORS["status-text"],
+        padx=12,
+    )
+    widgets["date"].pack(side="left")
 
-    widgets["tabs"] = ttk.Notebook(content)
-    widgets["tabs"].grid(row=2, column=0, sticky="nsew")
+    widgets["tabs"] = ttk.Notebook(g["root"], style="Page.TNotebook")
+    widgets["tabs"].grid(row=1, column=0, sticky="nsew")
     widgets["tabs"].bind("<<NotebookTabChanged>>", handle_when_user_selects_tab)
+
+    widgets["status"] = tkinter.Label(
+        g["root"],
+        text="Ready.",
+        anchor="w",
+        background=COLORS["status"],
+        foreground=COLORS["status-text"],
+        padx=7,
+        pady=3,
+    )
+    widgets["status"].grid(row=2, column=0, sticky="ew")
 
 
 def handle_when_text_widget_changes(event, panel_id):
@@ -84,6 +141,12 @@ def handle_when_user_selects_tab(event):
         if str(tab["page"]) == page:
             g["outgoing-events"].put({"type": "SELECT_TAB", "tab-id": tab_id})
             return
+
+
+def handle_when_user_clicks_move_row_button(tab_id, row_id, direction):
+    g["outgoing-events"].put(
+        {"type": "MOVE_ROW", "tab-id": tab_id, "row-id": row_id, "direction": direction}
+    )
 
 
 def handle_when_user_releases_pane_sash(event, row_id):
@@ -215,7 +278,7 @@ def build_today_tabs(command):
     position_widgets.clear()
 
     for tab in command["tabs"]:
-        page = ttk.Frame(widgets["tabs"], padding=12)
+        page = tkinter.Frame(widgets["tabs"], background=COLORS["middle"], padx=8, pady=8)
         widgets["tabs"].add(page, text=tab["tab-label"])
         tab_widgets[tab["tab-id"]] = {"page": page, "row-ids": []}
         build_tab_workspace(tab, page)
@@ -233,6 +296,24 @@ def handle_after_selecting_tab():
     g["selecting-tab"] = False
 
 
+def make_row_rail_button(button):
+    tkinter.Button(
+        button["parent"],
+        text=button["text"],
+        width=1,
+        padx=0,
+        pady=1,
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=0,
+        background=COLORS["row-controls"],
+        foreground=COLORS["row-controls-text"],
+        activebackground=COLORS["row-controls-hover"],
+        activeforeground="#E5EBF1",
+        command=button.get("command"),
+    ).grid(row=button["row"], column=0, pady=button.get("pady", 1))
+
+
 def build_tab_workspace(command, workspace):
     workspace.columnconfigure(0, weight=1)
     workspace.rowconfigure(0, weight=1)
@@ -245,12 +326,44 @@ def build_tab_workspace(command, workspace):
     )
 
     for row_number, row in enumerate(command["rows"]):
-        row_frame = ttk.Frame(rows_pane)
+        row_frame = tkinter.Frame(rows_pane, background=COLORS["middle"])
         rows_pane.add(row_frame, weight=1)
         tab_widgets[command["tab-id"]]["row-ids"].append(row["row-id"])
+        controls = tkinter.Frame(
+            row_frame,
+            width=24,
+            background=COLORS["row-controls"],
+        )
+        controls.grid(row=0, column=0, sticky="ns", padx=(0, 4))
+        controls.grid_propagate(False)
+        make_row_rail_button(
+            {
+                "parent": controls,
+                "text": "↑",
+                "row": 0,
+                "command": lambda tab_id=command["tab-id"], row_id=row["row-id"]: handle_when_user_clicks_move_row_button(
+                    tab_id, row_id, -1
+                ),
+            }
+        )
+        make_row_rail_button({"parent": controls, "text": "1", "row": 1})
+        make_row_rail_button({"parent": controls, "text": "2", "row": 2})
+        make_row_rail_button({"parent": controls, "text": "3", "row": 3})
+        make_row_rail_button({"parent": controls, "text": "x", "row": 4, "pady": (6, 1)})
+        make_row_rail_button(
+            {
+                "parent": controls,
+                "text": "↓",
+                "row": 5,
+                "pady": (6, 1),
+                "command": lambda tab_id=command["tab-id"], row_id=row["row-id"]: handle_when_user_clicks_move_row_button(
+                    tab_id, row_id, 1
+                ),
+            }
+        )
         row_pane = ttk.Panedwindow(row_frame, orient="horizontal")
-        row_pane.grid(row=0, column=0, sticky="nsew")
-        row_frame.columnconfigure(0, weight=1)
+        row_pane.grid(row=0, column=1, sticky="nsew")
+        row_frame.columnconfigure(1, weight=1)
         row_frame.rowconfigure(0, weight=1)
         row_pane.bind(
             "<ButtonRelease-1>",
@@ -265,7 +378,13 @@ def build_tab_workspace(command, workspace):
         }
 
         for column_number, position in enumerate(row["positions"]):
-            host = ttk.Frame(row_pane, relief="solid", borderwidth=1, padding=12)
+            host = ttk.Frame(
+                row_pane,
+                style="Panel.TFrame",
+                relief="solid",
+                borderwidth=1,
+                padding=12,
+            )
             row_pane.add(host, weight=1)
             position_widgets[position["position-id"]] = {
                 "host": host,

@@ -162,6 +162,19 @@ def handle_when_mem_receives_set_sash_proportions():
     mobile_stacks.set_register(("layout-change", "SASH_PROPORTIONS"))
 
 
+def handle_when_mem_receives_move_row():
+    tab_id = mobile_stacks.get_register("tab-id")
+    row_id = mobile_stacks.get_register("row-id")
+    direction = mobile_stacks.get_register("direction")
+    row_ids = tabs[tab_id]["row-ids"]
+    old_index = row_ids.index(row_id)
+    new_index = max(0, min(len(row_ids) - 1, old_index + direction))
+    row_ids.pop(old_index)
+    row_ids.insert(new_index, row_id)
+    print("Mem MOVE_ROW:", row_id, "to", new_index)
+    mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
+
+
 def handle_when_mem_receives_update_panel():
     panel_id = mobile_stacks.get_register("panel-id")
     base_revision = mobile_stacks.get_register("base-revision")

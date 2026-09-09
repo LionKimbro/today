@@ -9,6 +9,9 @@ logical column count: `1`, `2`, or `3`.
 Each row also carries `height` in pixels and `sash-proportions`: cumulative
 fractions for its internal pane sashes. They are canonical layout meaning.
 
+Rearranging rows changes the tab's row order, not the identity of a row or
+position.
+
 `positions` maps a derived, durable position id to one hosting record.
 
 | Field | Meaning |

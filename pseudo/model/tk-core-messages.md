@@ -8,6 +8,7 @@
 | Tk → Core | `SELECT_TAB`, `tab-id` | Request that this day's selected tab change. |
 | Tk → Core | `SET_ROW_HEIGHT`, `row-id`, `height` | Report a released row sash. |
 | Tk → Core | `SET_SASH_PROPORTIONS`, `row-id`, proportions | Report released pane sashes. |
+| Tk → Core | `MOVE_ROW`, `tab-id`, `row-id`, `direction` | Request a row move within its tab. |
 | Tk → Core | `TEXT_CHANGED`, `panel-id`, `text` | Replace Core's working text snapshot. |
 | Tk → Core | `TEXT_DEBOUNCE`, `panel-id` | Text input rested; Core may flush it. |
 | Tk → Core | `HISTORY_CURSOR_CHANGED`, `panel-id`, `history-cursor` | View HEAD or a snapshot. |

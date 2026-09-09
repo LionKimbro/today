@@ -28,3 +28,9 @@ Stage 7D renders each day tab as a Notebook page. User selection emits
 
 Stage 7E uses Tk paned windows. A released sash reports measured geometry;
 accepted row height or sash proportions are reapplied by targeted commands.
+
+Stage 7F row controls emit `MOVE_ROW`. Tk rebuilds from Core only after Mem
+accepts the structural order change.
+
+The Tk shell follows the 03 cockpit palette. The row rail carries inert
+`1`/`2`/`3`/`x` controls beside the working row arrows.
