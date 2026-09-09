@@ -6,16 +6,22 @@ from tkinter import ttk
 
 
 COLORS = {
-    "top": "#081525",
-    "row-controls": "#0B1A2B",
-    "row-controls-hover": "#17304A",
-    "row-controls-text": "#B8C4D0",
-    "middle": "#10243A",
-    "panel": "#F3F6F8",
-    "panel-text": "#162332",
-    "separator": "#35516B",
-    "status": "#0B1828",
-    "status-text": "#D7E2EC",
+    "app": "#081522",
+    "top": "#0C1D2E",
+    "panel": "#102438",
+    "control": "#182E45",
+    "editor": "#0C1925",
+    "border": "#29577F",
+    "divider": "#1A3A55",
+    "primary-text": "#E8EEF7",
+    "secondary-text": "#9FB4CC",
+    "muted-text": "#7289A1",
+    "accent-blue": "#4C9BFF",
+    "accent-purple": "#A66BFF",
+    "accent-green": "#65D18A",
+    "row-controls": "#0C1D2E",
+    "row-controls-hover": "#182E45",
+    "row-controls-text": "#9FB4CC",
 }
 
 g = {
@@ -41,30 +47,58 @@ def build_today_window():
     g["root"].title("Today")
     g["root"].minsize(700, 500)
     g["root"].geometry("1100x760")
-    g["root"].configure(background=COLORS["middle"])
+    g["root"].configure(background=COLORS["app"])
     g["root"].protocol("WM_DELETE_WINDOW", handle_when_user_requests_window_close)
     g["root"].bind("<<CoreMailAvailable>>", handle_when_core_mail_arrives)
 
     style = ttk.Style(g["root"])
-    style.configure("Page.TNotebook", background=COLORS["middle"], borderwidth=0)
+    style.theme_use("clam")
+    g["root"].option_add("*TCombobox*Listbox.background", COLORS["control"])
+    g["root"].option_add("*TCombobox*Listbox.foreground", COLORS["primary-text"])
+    g["root"].option_add("*TCombobox*Listbox.selectBackground", COLORS["accent-blue"])
+    g["root"].option_add("*TCombobox*Listbox.selectForeground", COLORS["primary-text"])
+    style.configure("Page.TNotebook", background=COLORS["app"], borderwidth=0)
     style.configure(
         "Page.TNotebook.Tab",
-        background="#FFFFFF",
-        foreground=COLORS["panel-text"],
-        padding=(12, 5),
+        background=COLORS["top"],
+        foreground=COLORS["secondary-text"],
+        padding=(16, 7),
     )
     style.map(
         "Page.TNotebook.Tab",
-        background=[("selected", "#FFFFFF"), ("active", "#F7FAFC")],
-        foreground=[("selected", COLORS["panel-text"]), ("active", COLORS["panel-text"])],
+        background=[("selected", COLORS["control"]), ("active", COLORS["panel"])],
+        foreground=[("selected", COLORS["primary-text"]), ("active", COLORS["primary-text"])],
     )
     style.configure("Panel.TFrame", background=COLORS["panel"])
-    style.configure("Panel.TLabel", background=COLORS["panel"], foreground=COLORS["panel-text"])
+    style.configure("Panel.TLabel", background=COLORS["panel"], foreground=COLORS["primary-text"])
     style.configure(
         "PanelTitle.TLabel",
         background=COLORS["panel"],
-        foreground=COLORS["panel-text"],
+        foreground=COLORS["primary-text"],
         font=("TkDefaultFont", 10, "bold"),
+    )
+    style.configure(
+        "Dark.TCombobox",
+        fieldbackground=COLORS["control"],
+        background=COLORS["control"],
+        foreground=COLORS["primary-text"],
+        arrowcolor=COLORS["secondary-text"],
+    )
+    style.map(
+        "Dark.TCombobox",
+        fieldbackground=[("readonly", COLORS["control"])],
+        foreground=[("readonly", COLORS["primary-text"])],
+    )
+    style.configure(
+        "Page.TPanedwindow",
+        background=COLORS["divider"],
+        sashwidth=6,
+        relief="flat",
+    )
+    style.configure("Page.TPanedwindow.Sash", background=COLORS["divider"])
+    style.map(
+        "Page.TPanedwindow.Sash",
+        background=[("active", COLORS["border"])],
     )
 
     g["root"].columnconfigure(0, weight=1)
@@ -76,14 +110,14 @@ def build_today_window():
         top,
         text="Today",
         background=COLORS["top"],
-        foreground=COLORS["status-text"],
+        foreground=COLORS["primary-text"],
         font=("TkDefaultFont", 18, "bold"),
     )
     widgets["title"].pack(side="left")
     widgets["date"] = tkinter.Label(
         top,
         background=COLORS["top"],
-        foreground=COLORS["status-text"],
+        foreground=COLORS["secondary-text"],
         padx=12,
     )
     widgets["date"].pack(side="left")
@@ -96,8 +130,8 @@ def build_today_window():
         g["root"],
         text="Ready.",
         anchor="w",
-        background=COLORS["status"],
-        foreground=COLORS["status-text"],
+        background=COLORS["top"],
+        foreground=COLORS["secondary-text"],
         padx=7,
         pady=3,
     )
@@ -278,7 +312,7 @@ def build_today_tabs(command):
     position_widgets.clear()
 
     for tab in command["tabs"]:
-        page = tkinter.Frame(widgets["tabs"], background=COLORS["middle"], padx=8, pady=8)
+        page = tkinter.Frame(widgets["tabs"], background=COLORS["app"], padx=12, pady=12)
         widgets["tabs"].add(page, text=tab["tab-label"])
         tab_widgets[tab["tab-id"]] = {"page": page, "row-ids": []}
         build_tab_workspace(tab, page)
@@ -314,10 +348,16 @@ def make_row_rail_button(button):
     ).grid(row=button["row"], column=0, pady=button.get("pady", 1))
 
 
+def get_panel_accent(panel_id):
+    if panel_id.endswith("b"):
+        return COLORS["accent-purple"]
+    return COLORS["accent-blue"]
+
+
 def build_tab_workspace(command, workspace):
     workspace.columnconfigure(0, weight=1)
     workspace.rowconfigure(0, weight=1)
-    rows_pane = ttk.Panedwindow(workspace, orient="vertical")
+    rows_pane = ttk.Panedwindow(workspace, orient="vertical", style="Page.TPanedwindow")
     rows_pane.grid(row=0, column=0, sticky="nsew")
     tab_widgets[command["tab-id"]]["rows-pane"] = rows_pane
     rows_pane.bind(
@@ -326,7 +366,7 @@ def build_tab_workspace(command, workspace):
     )
 
     for row_number, row in enumerate(command["rows"]):
-        row_frame = tkinter.Frame(rows_pane, background=COLORS["middle"])
+        row_frame = tkinter.Frame(rows_pane, background=COLORS["app"])
         rows_pane.add(row_frame, weight=1)
         tab_widgets[command["tab-id"]]["row-ids"].append(row["row-id"])
         controls = tkinter.Frame(
@@ -361,7 +401,7 @@ def build_tab_workspace(command, workspace):
                 ),
             }
         )
-        row_pane = ttk.Panedwindow(row_frame, orient="horizontal")
+        row_pane = ttk.Panedwindow(row_frame, orient="horizontal", style="Page.TPanedwindow")
         row_pane.grid(row=0, column=1, sticky="nsew")
         row_frame.columnconfigure(1, weight=1)
         row_frame.rowconfigure(0, weight=1)
@@ -378,14 +418,14 @@ def build_tab_workspace(command, workspace):
         }
 
         for column_number, position in enumerate(row["positions"]):
+            card_border = tkinter.Frame(row_pane, background=COLORS["border"])
+            row_pane.add(card_border, weight=1)
             host = ttk.Frame(
-                row_pane,
+                card_border,
                 style="Panel.TFrame",
-                relief="solid",
-                borderwidth=1,
-                padding=12,
+                padding=16,
             )
-            row_pane.add(host, weight=1)
+            host.pack(fill="both", expand=True, padx=1, pady=1)
             position_widgets[position["position-id"]] = {
                 "host": host,
                 "panel-id": None,
@@ -439,9 +479,20 @@ def clear_position_host(position_id):
 def render_empty_position(command):
     position = position_widgets[command["position-id"]]
     host = position["host"]
-    ttk.Label(host, text=command["position-id"]).grid(row=0, column=0, sticky="w")
-    choice = ttk.Combobox(host, values=command["available-panel-ids"], state="readonly")
-    choice.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+    host.columnconfigure(1, weight=1)
+    tkinter.Frame(host, background=COLORS["accent-green"], width=5).grid(
+        row=0, column=0, rowspan=2, sticky="ns", padx=(0, 12)
+    )
+    ttk.Label(host, text=command["position-id"], style="PanelTitle.TLabel").grid(
+        row=0, column=1, sticky="w"
+    )
+    choice = ttk.Combobox(
+        host,
+        values=command["available-panel-ids"],
+        state="readonly",
+        style="Dark.TCombobox",
+    )
+    choice.grid(row=1, column=1, sticky="ew", pady=(14, 0))
     choice.set("Choose existing panel")
     choice.bind(
         "<<ComboboxSelected>>",
@@ -456,28 +507,65 @@ def render_hosted_panel(command):
     position = position_widgets[command["position-id"]]
     host = position["host"]
     position["panel-id"] = command["panel-id"]
-    host.columnconfigure(0, weight=1)
+    host.columnconfigure(1, weight=1)
     host.rowconfigure(2, weight=1)
 
-    ttk.Label(host, text=f"{command['position-id']} hosts:").grid(row=0, column=0, sticky="w")
-    label = ttk.Label(host, text=command["panel-label"])
-    label.grid(row=1, column=0, sticky="w", pady=(12, 0))
-    snapshot_button = ttk.Button(
+    tkinter.Frame(
+        host,
+        background=get_panel_accent(command["panel-id"]),
+        width=5,
+    ).grid(row=0, column=0, rowspan=4, sticky="ns", padx=(0, 12))
+    ttk.Label(host, text=f"{command['position-id']} hosts:", style="PanelTitle.TLabel").grid(
+        row=0, column=1, sticky="w"
+    )
+    label = ttk.Label(host, text=command["panel-label"], style="Panel.TLabel")
+    label.grid(row=1, column=1, sticky="w", pady=(14, 0))
+    snapshot_button = tkinter.Button(
         host,
         text="Snapshot",
+        background=COLORS["accent-blue"],
+        foreground=COLORS["primary-text"],
+        activebackground="#347FD8",
+        activeforeground=COLORS["primary-text"],
+        relief="flat",
+        borderwidth=0,
+        padx=14,
+        pady=6,
         command=lambda panel_id=command["panel-id"]: handle_when_user_clicks_snapshot_button(panel_id),
     )
-    snapshot_button.grid(row=1, column=1, sticky="e", pady=(12, 0))
-    unhost_button = ttk.Button(
+    snapshot_button.grid(row=1, column=2, sticky="e", pady=(14, 0))
+    unhost_button = tkinter.Button(
         host,
         text="Unhost panel",
+        background=COLORS["control"],
+        foreground=COLORS["secondary-text"],
+        activebackground=COLORS["divider"],
+        activeforeground=COLORS["primary-text"],
+        relief="flat",
+        borderwidth=0,
+        padx=10,
+        pady=4,
         command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(
             position_id
         ),
     )
-    unhost_button.grid(row=0, column=1, sticky="e")
-    text = tkinter.Text(host, height=10, wrap="word")
-    text.grid(row=2, column=0, sticky="nsew", pady=(16, 0))
+    unhost_button.grid(row=0, column=2, sticky="e")
+    text = tkinter.Text(
+        host,
+        height=10,
+        wrap="word",
+        background=COLORS["editor"],
+        foreground=COLORS["primary-text"],
+        insertbackground=COLORS["primary-text"],
+        selectbackground=COLORS["accent-blue"],
+        selectforeground=COLORS["primary-text"],
+        relief="solid",
+        borderwidth=1,
+        highlightthickness=1,
+        highlightbackground=COLORS["border"],
+        highlightcolor=COLORS["accent-blue"],
+    )
+    text.grid(row=2, column=1, sticky="nsew", pady=(18, 0))
     text.bind(
         "<<Modified>>",
         lambda event, panel_id=command["panel-id"]: handle_when_text_widget_changes(event, panel_id),
@@ -491,10 +579,17 @@ def render_hosted_panel(command):
         command=lambda value, panel_id=command["panel-id"]: handle_when_user_moves_history_cursor(
             value, panel_id
         ),
+        background=COLORS["panel"],
+        foreground=COLORS["secondary-text"],
+        troughcolor=COLORS["control"],
+        activebackground=COLORS["accent-blue"],
+        highlightthickness=0,
+        borderwidth=0,
+        sliderrelief="flat",
     )
-    history_slider.grid(row=2, column=1, sticky="ns", padx=(12, 0), pady=(16, 0))
-    history_status = ttk.Label(host, text="Current working version")
-    history_status.grid(row=3, column=0, sticky="w", pady=(8, 0))
+    history_slider.grid(row=2, column=2, sticky="ns", padx=(12, 0), pady=(18, 0))
+    history_status = ttk.Label(host, text="Current working version", style="Panel.TLabel")
+    history_status.grid(row=3, column=1, sticky="w", pady=(10, 0))
 
     g["rendering-text"] = True
     text.insert("1.0", command["panel-text"])
