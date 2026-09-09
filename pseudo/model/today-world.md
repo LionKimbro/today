@@ -11,7 +11,7 @@ special panel type; Orientation is one such panel, not the slot itself.
 | Thing | Current owner | Current role |
 | --- | --- | --- |
 | day | Mem | Canonical workspace; Core retains its active snapshot |
-| tab | Mem | Canonical layout within its day |
+| tab | Mem | Canonical layout within its day, including its scroll position |
 | row | Mem | Ordered tab row with a logical column count |
 | position | Mem | Derived `row-id/column-N` location and hosted `panel-id` |
 | panel | Mem | Canonical panel record |

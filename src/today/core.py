@@ -76,6 +76,7 @@ def get_tab_rendering(tab_id):
     tab = tabs[tab_id]
     return {
         "tab-label": tab["label"],
+        "scroll-position": tab["scroll-position"],
         "rows": [
             {
                 "row-id": row_id,
@@ -238,8 +239,26 @@ def reduce_event(event):
             }
         ]
 
+    if event["type"] == "ADD_ROW":
+        return [{"type": "ADD_ROW", "tab-id": event["tab-id"]}]
+
+    if event["type"] == "SET_TAB_SCROLL_POSITION":
+        return [
+            {
+                "type": "REQUEST_TAB_SCROLL_POSITION",
+                "tab-id": event["tab-id"],
+                "scroll-position": event["scroll-position"],
+            }
+        ]
+
     if event["type"] == "TAB_LAYOUT_CHANGED":
         tabs[event["tab"]["id"]] = event["tab"]
+        if "row" in event:
+            row = event["row"]
+            rows[row["id"]] = row
+            positions[get_position_id(row["id"], 1)] = {"panel-id": None}
+        if event["layout-change"] == "TAB_SCROLL_POSITION":
+            return [{"type": "SET_TAB_SCROLL_POSITION", "tab-id": event["tab"]["id"]}]
         return [{"type": "RENDER_TODAY"}]
 
     if event["type"] == "PANEL_FOR_HOSTING_RECEIVED":
@@ -427,6 +446,23 @@ def dispatch_effect(effect):
         machine.route_current_stack()
         return
 
+    if effect["type"] == "ADD_ROW":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("tab-id", effect["tab-id"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "TAB_LAYOUT_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "ADD_ROW"})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "REQUEST_TAB_SCROLL_POSITION":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("tab-id", effect["tab-id"]))
+        mobile_stacks.set_register(("scroll-position", effect["scroll-position"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "TAB_LAYOUT_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "SET_TAB_SCROLL_POSITION"})
+        machine.route_current_stack()
+        return
+
     if effect["type"] == "UNHOST_PANEL":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("position-id", effect["position-id"]))
@@ -490,6 +526,16 @@ def dispatch_effect(effect):
                 "type": "SET_SASH_PROPORTIONS",
                 "row-id": effect["row-id"],
                 "sash-proportions": rows[effect["row-id"]]["sash-proportions"],
+            }
+        )
+        return
+
+    if effect["type"] == "SET_TAB_SCROLL_POSITION":
+        g["send-tk-command"](
+            {
+                "type": "SET_TAB_SCROLL_POSITION",
+                "tab-id": effect["tab-id"],
+                "scroll-position": tabs[effect["tab-id"]]["scroll-position"],
             }
         )
         return
@@ -595,9 +641,14 @@ def handle_when_core_receives_row_layout():
 
 
 def handle_when_core_receives_tab_layout():
-    g["reducer-events"].append(
-        {"type": "TAB_LAYOUT_CHANGED", "tab": deepcopy(mobile_stacks.get_register("tab"))}
-    )
+    event = {
+        "type": "TAB_LAYOUT_CHANGED",
+        "tab": deepcopy(mobile_stacks.get_register("tab")),
+        "layout-change": mobile_stacks.get_register("layout-change"),
+    }
+    if mobile_stacks.has_register("row"):
+        event["row"] = deepcopy(mobile_stacks.get_register("row"))
+    g["reducer-events"].append(event)
 
 
 def handle_when_core_receives_panel_update():

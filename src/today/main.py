@@ -37,6 +37,8 @@ def main():
             "SET_ROW_HEIGHT": mem.handle_when_mem_receives_set_row_height,
             "SET_SASH_PROPORTIONS": mem.handle_when_mem_receives_set_sash_proportions,
             "MOVE_ROW": mem.handle_when_mem_receives_move_row,
+            "ADD_ROW": mem.handle_when_mem_receives_add_row,
+            "SET_TAB_SCROLL_POSITION": mem.handle_when_mem_receives_set_tab_scroll_position,
             "UPDATE_PANEL": mem.handle_when_mem_receives_update_panel,
             "HOST_PANEL": mem.handle_when_mem_receives_host_panel,
             "UNHOST_PANEL": mem.handle_when_mem_receives_unhost_panel,

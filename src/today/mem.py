@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import date
+from uuid import uuid4
 
 from . import machine, mobile_stacks
 
@@ -24,12 +25,14 @@ def initialize_mem_store():
         "day-id": today_id,
         "label": "Tab A",
         "row-ids": ["row-a", "row-b"],
+        "scroll-position": 0.0,
     }
     tabs["tab-b"] = {
         "id": "tab-b",
         "day-id": today_id,
         "label": "Tab B",
         "row-ids": ["row-c", "row-d"],
+        "scroll-position": 0.0,
     }
     rows["row-a"] = {
         "id": "row-a",
@@ -173,6 +176,34 @@ def handle_when_mem_receives_move_row():
     row_ids.insert(new_index, row_id)
     print("Mem MOVE_ROW:", row_id, "to", new_index)
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
+    mobile_stacks.set_register(("layout-change", "TAB_ROWS"))
+
+
+def handle_when_mem_receives_add_row():
+    tab_id = mobile_stacks.get_register("tab-id")
+    row_id = f"row-{uuid4().hex}"
+    rows[row_id] = {
+        "id": row_id,
+        "tab-id": tab_id,
+        "column-count": 1,
+        "height": 160,
+        "sash-proportions": [],
+    }
+    positions[get_position_id(row_id, 1)] = {"panel-id": None}
+    tabs[tab_id]["row-ids"].append(row_id)
+    print("Mem ADD_ROW:", tab_id, row_id)
+    mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
+    mobile_stacks.set_register(("row", deepcopy(rows[row_id])))
+    mobile_stacks.set_register(("layout-change", "TAB_ROWS"))
+
+
+def handle_when_mem_receives_set_tab_scroll_position():
+    tab_id = mobile_stacks.get_register("tab-id")
+    scroll_position = mobile_stacks.get_register("scroll-position")
+    tabs[tab_id]["scroll-position"] = max(0.0, min(1.0, scroll_position))
+    print("Mem SET_TAB_SCROLL_POSITION:", tab_id, tabs[tab_id]["scroll-position"])
+    mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
+    mobile_stacks.set_register(("layout-change", "TAB_SCROLL_POSITION"))
 
 
 def handle_when_mem_receives_update_panel():

@@ -31,6 +31,7 @@ g = {
     "rendering-history": False,
     "selecting-tab": False,
     "text-debounce-ids": {},
+    "scroll-save-ids": {},
     "outgoing-events": None,
     "incoming-commands": None,
 }
@@ -185,6 +186,57 @@ def handle_when_user_clicks_move_row_button(tab_id, row_id, direction):
     )
 
 
+def handle_when_user_clicks_add_row_button(tab_id):
+    g["outgoing-events"].put({"type": "ADD_ROW", "tab-id": tab_id})
+
+
+def handle_when_tab_canvas_resizes(event, tab_id):
+    tab_widgets[tab_id]["canvas"].itemconfigure(tab_widgets[tab_id]["scroll-window"], width=event.width)
+
+
+def handle_when_tab_workspace_changes(event, tab_id):
+    canvas = tab_widgets[tab_id]["canvas"]
+    canvas.configure(scrollregion=canvas.bbox("all"))
+
+
+def handle_when_tab_scrolls(tab_id, first, last):
+    tab = tab_widgets.get(tab_id)
+    if tab is None:
+        return
+    tab["scrollbar"].set(first, last)
+    if tab["applying-scroll-position"]:
+        return
+    if tab_id in g["scroll-save-ids"]:
+        g["root"].after_cancel(g["scroll-save-ids"][tab_id])
+    g["scroll-save-ids"][tab_id] = g["root"].after(
+        250,
+        lambda: send_tab_scroll_position(tab_id),
+    )
+
+
+def send_tab_scroll_position(tab_id):
+    g["scroll-save-ids"].pop(tab_id, None)
+    tab = tab_widgets.get(tab_id)
+    if tab is None:
+        return
+    g["outgoing-events"].put(
+        {
+            "type": "SET_TAB_SCROLL_POSITION",
+            "tab-id": tab_id,
+            "scroll-position": tab["canvas"].yview()[0],
+        }
+    )
+
+
+def apply_tab_scroll_position(tab_id):
+    tab = tab_widgets.get(tab_id)
+    if tab is None:
+        return
+    tab["applying-scroll-position"] = True
+    tab["canvas"].yview_moveto(tab["scroll-position"])
+    tab["applying-scroll-position"] = False
+
+
 def handle_when_user_releases_pane_sash(event, row_id):
     pane = row_widgets[row_id]["pane"]
     width = pane.winfo_width()
@@ -301,11 +353,19 @@ def realize_core_command(command):
         apply_row_sash_proportions(command["row-id"])
         return
 
+    if command["type"] == "SET_TAB_SCROLL_POSITION":
+        tab_widgets[command["tab-id"]]["scroll-position"] = command["scroll-position"]
+        apply_tab_scroll_position(command["tab-id"])
+        return
+
     if command["type"] == "SHUTDOWN_COMPLETE":
         g["root"].destroy()
 
 
 def build_today_tabs(command):
+    for after_id in g["scroll-save-ids"].values():
+        g["root"].after_cancel(after_id)
+    g["scroll-save-ids"].clear()
     for child in widgets["tabs"].winfo_children():
         child.destroy()
     tab_widgets.clear()
@@ -314,10 +374,55 @@ def build_today_tabs(command):
     position_widgets.clear()
 
     for tab in command["tabs"]:
-        page = tkinter.Frame(widgets["tabs"], background=COLORS["app"], padx=12, pady=12)
+        page = tkinter.Frame(widgets["tabs"], background=COLORS["app"])
+        page.columnconfigure(0, weight=1)
+        page.rowconfigure(0, weight=1)
         widgets["tabs"].add(page, text=tab["tab-label"])
-        tab_widgets[tab["tab-id"]] = {"page": page, "row-ids": []}
-        build_tab_workspace(tab, page)
+        canvas = tkinter.Canvas(
+            page,
+            background=COLORS["app"],
+            borderwidth=0,
+            highlightthickness=0,
+        )
+        scrollbar = tkinter.Scrollbar(
+            page,
+            orient="vertical",
+            command=canvas.yview,
+            background=COLORS["control"],
+            activebackground=COLORS["border"],
+            troughcolor=COLORS["top"],
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
+        )
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        workspace = tkinter.Frame(canvas, background=COLORS["app"], padx=12, pady=12)
+        scroll_window = canvas.create_window((0, 0), window=workspace, anchor="nw")
+        tab_widgets[tab["tab-id"]] = {
+            "page": page,
+            "canvas": canvas,
+            "scrollbar": scrollbar,
+            "scroll-window": scroll_window,
+            "scroll-position": tab["scroll-position"],
+            "applying-scroll-position": False,
+            "row-ids": [],
+        }
+        canvas.configure(
+            yscrollcommand=lambda first, last, tab_id=tab["tab-id"]: handle_when_tab_scrolls(
+                tab_id, first, last
+            )
+        )
+        canvas.bind(
+            "<Configure>",
+            lambda event, tab_id=tab["tab-id"]: handle_when_tab_canvas_resizes(event, tab_id),
+        )
+        workspace.bind(
+            "<Configure>",
+            lambda event, tab_id=tab["tab-id"]: handle_when_tab_workspace_changes(event, tab_id),
+        )
+        build_tab_workspace(tab, workspace)
+        g["root"].after_idle(lambda tab_id=tab["tab-id"]: apply_tab_scroll_position(tab_id))
 
     select_tab(command["selected-tab-id"])
 
@@ -404,6 +509,16 @@ def build_tab_workspace(command, workspace):
                 ),
             }
         )
+        if row_number == len(command["rows"]) - 1:
+            make_row_rail_button(
+                {
+                    "parent": controls,
+                    "text": "+",
+                    "row": 6,
+                    "pady": (6, 1),
+                    "command": lambda tab_id=command["tab-id"]: handle_when_user_clicks_add_row_button(tab_id),
+                }
+            )
         row_pane = ttk.Panedwindow(row_frame, orient="horizontal", style="Page.TPanedwindow")
         row_pane.grid(row=0, column=1, sticky="nsew")
         row_frame.columnconfigure(1, weight=1)
@@ -451,6 +566,7 @@ def apply_tab_geometry(tab_id):
 def apply_tab_row_heights(tab_id):
     rows_pane = tab_widgets[tab_id]["rows-pane"]
     heights = [row_widgets[row_id]["height"] for row_id in tab_widgets[tab_id]["row-ids"]]
+    rows_pane.configure(height=sum(heights))
     if rows_pane.winfo_height() <= 1 or len(heights) < 2:
         return
     cumulative_height = 0

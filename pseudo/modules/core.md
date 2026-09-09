@@ -131,6 +131,12 @@ PSEUDOCODE:
   MOVE_ROW -> Mem changes tab.row-ids
   -> Core reconciles the structurally changed day workspace
 
+  ADD_ROW -> Mem appends a minted one-column row
+  -> Core reconciles the structurally changed day workspace
+
+  SET_TAB_SCROLL_POSITION -> Mem accepts one tab's vertical fraction
+  -> Core sends a targeted Tk scroll command
+
 
   == Canonical panel update ==
 

@@ -10,6 +10,9 @@ The canonical record stays owned by Mem, including nested mutable data.
 `SELECT_TAB` canonically changes `days[day-id]["selected-tab-id"]`.
 `SET_ROW_HEIGHT` and `SET_SASH_PROPORTIONS` canonically change one row.
 `MOVE_ROW` canonically reorders a tab's row ids.
+`ADD_ROW` appends a new empty row with a Mem-minted identity.
+`SET_TAB_SCROLL_POSITION` canonically changes one tab's visible vertical
+fraction.
 
 Stage 7C seeds `whiteboard-a`, `whiteboard-b`, and unhosted `whiteboard-c`.
 

@@ -11,8 +11,8 @@ The hosted-panel combobox sends `HOST_PANEL`; it does not swap panels itself.
 Text input resets one 1-second debounce. Its expiry sends generic
 `TEXT_DEBOUNCE`; Tk does not decide whether to save.
 
-Tk renders the history slider, Snapshot button, and status. Their events ask
-Core to select or snapshot a version; Tk does not interpret history.
+Tk renders the history slider and Snapshot button. The visible version's status
+uses the global status bar; Tk does not interpret history.
 
 Rename stays disabled until Core renders the panel. Its callback uses the
 rendered panel identity. A late render does not re-enable it during closing.
@@ -30,7 +30,11 @@ Stage 7E uses Tk paned windows. A released sash reports measured geometry;
 accepted row height or sash proportions are reapplied by targeted commands.
 
 Stage 7F row controls emit `MOVE_ROW`. Tk rebuilds from Core only after Mem
-accepts the structural order change.
+accepts the structural order change. The final row alone also offers `+` for
+`ADD_ROW`.
+
+Each tab is a scrollable surface. Settled scrolling emits
+`SET_TAB_SCROLL_POSITION`; Core's accepted position is reapplied to Tk.
 
 The Tk shell follows the 03 cockpit palette. The row rail carries inert
 `1`/`2`/`3`/`x` controls beside the working row arrows.
