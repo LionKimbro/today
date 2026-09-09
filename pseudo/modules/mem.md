@@ -11,8 +11,11 @@ The canonical record stays owned by Mem, including nested mutable data.
 `SET_ROW_HEIGHT` and `SET_SASH_PROPORTIONS` canonically change one row.
 `MOVE_ROW` canonically reorders a tab's row ids.
 `ADD_ROW` appends a new empty row with a Mem-minted identity.
+`DELETE_ROW` preserves its panels and removes a non-final row.
+`SET_ROW_COLUMN_COUNT` changes one row's derived position slots.
 `SET_TAB_SCROLL_POSITION` canonically changes one tab's visible vertical
 fraction.
+`CREATE_TAB`, `RENAME_TAB`, and `DELETE_TAB` canonically manage a day's tabs.
 
 Stage 7C seeds `whiteboard-a`, `whiteboard-b`, and unhosted `whiteboard-c`.
 

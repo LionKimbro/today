@@ -223,10 +223,26 @@ def reduce_event(event):
             }
         ]
 
+    if event["type"] == "SET_ROW_COLUMN_COUNT":
+        return [
+            {
+                "type": "REQUEST_ROW_COLUMN_COUNT",
+                "row-id": event["row-id"],
+                "column-count": event["column-count"],
+            }
+        ]
+
     if event["type"] == "ROW_LAYOUT_CHANGED":
+        old_column_count = rows[event["row"]["id"]]["column-count"]
         rows[event["row"]["id"]] = event["row"]
         if event["layout-change"] == "ROW_HEIGHT":
             return [{"type": "SET_ROW_HEIGHT", "row-id": event["row"]["id"]}]
+        if event["layout-change"] == "ROW_COLUMNS":
+            for column in range(event["row"]["column-count"] + 1, old_column_count + 1):
+                positions.pop(get_position_id(event["row"]["id"], column), None)
+            for column in range(1, event["row"]["column-count"] + 1):
+                positions.setdefault(get_position_id(event["row"]["id"], column), {"panel-id": None})
+            return [{"type": "RENDER_TODAY"}]
         return [{"type": "SET_SASH_PROPORTIONS", "row-id": event["row"]["id"]}]
 
     if event["type"] == "MOVE_ROW":
@@ -241,6 +257,15 @@ def reduce_event(event):
 
     if event["type"] == "ADD_ROW":
         return [{"type": "ADD_ROW", "tab-id": event["tab-id"]}]
+
+    if event["type"] == "DELETE_ROW":
+        return [
+            {
+                "type": "DELETE_ROW",
+                "tab-id": event["tab-id"],
+                "row-id": event["row-id"],
+            }
+        ]
 
     if event["type"] == "SET_TAB_SCROLL_POSITION":
         return [
@@ -257,8 +282,43 @@ def reduce_event(event):
             row = event["row"]
             rows[row["id"]] = row
             positions[get_position_id(row["id"], 1)] = {"panel-id": None}
+        if event["deleted-row-id"] is not None:
+            deleted_row = rows.pop(event["deleted-row-id"])
+            for column in range(1, deleted_row["column-count"] + 1):
+                positions.pop(get_position_id(deleted_row["id"], column), None)
         if event["layout-change"] == "TAB_SCROLL_POSITION":
             return [{"type": "SET_TAB_SCROLL_POSITION", "tab-id": event["tab"]["id"]}]
+        return [{"type": "RENDER_TODAY"}]
+
+    if event["type"] == "CREATE_TAB":
+        return [{"type": "CREATE_TAB", "day-id": g["today-id"]}]
+
+    if event["type"] == "TAB_CREATED":
+        g["selected-tab-id"] = event["day"]["selected-tab-id"]
+        tabs[event["tab"]["id"]] = event["tab"]
+        rows[event["row"]["id"]] = event["row"]
+        positions[get_position_id(event["row"]["id"], 1)] = {"panel-id": None}
+        return [{"type": "RENDER_TODAY"}]
+
+    if event["type"] == "RENAME_TAB":
+        return [{"type": "RENAME_TAB", "tab-id": event["tab-id"], "label": event["label"]}]
+
+    if event["type"] == "TAB_RENAMED":
+        tabs[event["tab"]["id"]] = event["tab"]
+        return [{"type": "SET_TAB_LABEL", "tab-id": event["tab"]["id"]}]
+
+    if event["type"] == "DELETE_TAB":
+        return [{"type": "DELETE_TAB", "day-id": g["today-id"], "tab-id": event["tab-id"]}]
+
+    if event["type"] == "TAB_DELETED":
+        if not event["deleted"]:
+            return []
+        tab = tabs.pop(event["tab-id"])
+        for row_id in tab["row-ids"]:
+            row = rows.pop(row_id)
+            for column in range(1, row["column-count"] + 1):
+                positions.pop(get_position_id(row_id, column), None)
+        g["selected-tab-id"] = event["day"]["selected-tab-id"]
         return [{"type": "RENDER_TODAY"}]
 
     if event["type"] == "PANEL_FOR_HOSTING_RECEIVED":
@@ -436,6 +496,15 @@ def dispatch_effect(effect):
         machine.route_current_stack()
         return
 
+    if effect["type"] == "REQUEST_ROW_COLUMN_COUNT":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("row-id", effect["row-id"]))
+        mobile_stacks.set_register(("column-count", effect["column-count"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "ROW_LAYOUT_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "SET_ROW_COLUMN_COUNT"})
+        machine.route_current_stack()
+        return
+
     if effect["type"] == "MOVE_ROW":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("tab-id", effect["tab-id"]))
@@ -454,12 +523,47 @@ def dispatch_effect(effect):
         machine.route_current_stack()
         return
 
+    if effect["type"] == "DELETE_ROW":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("tab-id", effect["tab-id"]))
+        mobile_stacks.set_register(("row-id", effect["row-id"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "TAB_LAYOUT_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "DELETE_ROW"})
+        machine.route_current_stack()
+        return
+
     if effect["type"] == "REQUEST_TAB_SCROLL_POSITION":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("tab-id", effect["tab-id"]))
         mobile_stacks.set_register(("scroll-position", effect["scroll-position"]))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "TAB_LAYOUT_RETURNED"})
         mobile_stacks.push_frame({"machine": "MEM", "entry": "SET_TAB_SCROLL_POSITION"})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "CREATE_TAB":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-id", effect["day-id"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "TAB_CREATED_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "CREATE_TAB"})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "RENAME_TAB":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("tab-id", effect["tab-id"]))
+        mobile_stacks.set_register(("label", effect["label"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "TAB_RENAMED_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "RENAME_TAB"})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "DELETE_TAB":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-id", effect["day-id"]))
+        mobile_stacks.set_register(("tab-id", effect["tab-id"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "TAB_DELETED_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "DELETE_TAB"})
         machine.route_current_stack()
         return
 
@@ -536,6 +640,16 @@ def dispatch_effect(effect):
                 "type": "SET_TAB_SCROLL_POSITION",
                 "tab-id": effect["tab-id"],
                 "scroll-position": tabs[effect["tab-id"]]["scroll-position"],
+            }
+        )
+        return
+
+    if effect["type"] == "SET_TAB_LABEL":
+        g["send-tk-command"](
+            {
+                "type": "SET_TAB_LABEL",
+                "tab-id": effect["tab-id"],
+                "tab-label": tabs[effect["tab-id"]]["label"],
             }
         )
         return
@@ -645,10 +759,41 @@ def handle_when_core_receives_tab_layout():
         "type": "TAB_LAYOUT_CHANGED",
         "tab": deepcopy(mobile_stacks.get_register("tab")),
         "layout-change": mobile_stacks.get_register("layout-change"),
+        "deleted-row-id": mobile_stacks.get_register("deleted-row-id")
+        if mobile_stacks.has_register("deleted-row-id")
+        else None,
     }
     if mobile_stacks.has_register("row"):
         event["row"] = deepcopy(mobile_stacks.get_register("row"))
     g["reducer-events"].append(event)
+
+
+def handle_when_core_receives_created_tab():
+    g["reducer-events"].append(
+        {
+            "type": "TAB_CREATED",
+            "day": deepcopy(mobile_stacks.get_register("day")),
+            "tab": deepcopy(mobile_stacks.get_register("tab")),
+            "row": deepcopy(mobile_stacks.get_register("row")),
+        }
+    )
+
+
+def handle_when_core_receives_renamed_tab():
+    g["reducer-events"].append(
+        {"type": "TAB_RENAMED", "tab": deepcopy(mobile_stacks.get_register("tab"))}
+    )
+
+
+def handle_when_core_receives_deleted_tab():
+    g["reducer-events"].append(
+        {
+            "type": "TAB_DELETED",
+            "day": deepcopy(mobile_stacks.get_register("day")),
+            "tab-id": mobile_stacks.get_register("tab-id"),
+            "deleted": mobile_stacks.get_register("deleted"),
+        }
+    )
 
 
 def handle_when_core_receives_panel_update():

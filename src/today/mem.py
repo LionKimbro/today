@@ -165,6 +165,28 @@ def handle_when_mem_receives_set_sash_proportions():
     mobile_stacks.set_register(("layout-change", "SASH_PROPORTIONS"))
 
 
+def handle_when_mem_receives_set_row_column_count():
+    row_id = mobile_stacks.get_register("row-id")
+    column_count = mobile_stacks.get_register("column-count")
+    if column_count not in {1, 2, 3}:
+        raise RuntimeError(f"invalid column count {column_count}")
+
+    row = rows[row_id]
+    old_column_count = row["column-count"]
+    if column_count < old_column_count:
+        for column in range(column_count + 1, old_column_count + 1):
+            positions.pop(get_position_id(row_id, column))
+    else:
+        for column in range(old_column_count + 1, column_count + 1):
+            positions[get_position_id(row_id, column)] = {"panel-id": None}
+
+    row["column-count"] = column_count
+    row["sash-proportions"] = [column / column_count for column in range(1, column_count)]
+    print("Mem SET_ROW_COLUMN_COUNT:", row_id, column_count)
+    mobile_stacks.set_register(("row", deepcopy(row)))
+    mobile_stacks.set_register(("layout-change", "ROW_COLUMNS"))
+
+
 def handle_when_mem_receives_move_row():
     tab_id = mobile_stacks.get_register("tab-id")
     row_id = mobile_stacks.get_register("row-id")
@@ -176,6 +198,22 @@ def handle_when_mem_receives_move_row():
     row_ids.insert(new_index, row_id)
     print("Mem MOVE_ROW:", row_id, "to", new_index)
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
+    mobile_stacks.set_register(("layout-change", "TAB_ROWS"))
+
+
+def handle_when_mem_receives_delete_row():
+    tab_id = mobile_stacks.get_register("tab-id")
+    row_id = mobile_stacks.get_register("row-id")
+    row_ids = tabs[tab_id]["row-ids"]
+    deleted = len(row_ids) > 1
+    if deleted:
+        row_ids.remove(row_id)
+        row = rows.pop(row_id)
+        for column in range(1, row["column-count"] + 1):
+            positions.pop(get_position_id(row_id, column))
+    print("Mem DELETE_ROW:", row_id, "deleted" if deleted else "kept final row")
+    mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
+    mobile_stacks.set_register(("deleted-row-id", row_id if deleted else None))
     mobile_stacks.set_register(("layout-change", "TAB_ROWS"))
 
 
@@ -204,6 +242,63 @@ def handle_when_mem_receives_set_tab_scroll_position():
     print("Mem SET_TAB_SCROLL_POSITION:", tab_id, tabs[tab_id]["scroll-position"])
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
     mobile_stacks.set_register(("layout-change", "TAB_SCROLL_POSITION"))
+
+
+def handle_when_mem_receives_create_tab():
+    day_id = mobile_stacks.get_register("day-id")
+    tab_id = f"tab-{uuid4().hex}"
+    row_id = f"row-{uuid4().hex}"
+    tabs[tab_id] = {
+        "id": tab_id,
+        "day-id": day_id,
+        "label": f"Tab {len(days[day_id]['tab-ids']) + 1}",
+        "row-ids": [row_id],
+        "scroll-position": 0.0,
+    }
+    rows[row_id] = {
+        "id": row_id,
+        "tab-id": tab_id,
+        "column-count": 1,
+        "height": 160,
+        "sash-proportions": [],
+    }
+    positions[get_position_id(row_id, 1)] = {"panel-id": None}
+    days[day_id]["tab-ids"].append(tab_id)
+    days[day_id]["selected-tab-id"] = tab_id
+    print("Mem CREATE_TAB:", day_id, tab_id)
+    mobile_stacks.set_register(("day", deepcopy(days[day_id])))
+    mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
+    mobile_stacks.set_register(("row", deepcopy(rows[row_id])))
+
+
+def handle_when_mem_receives_rename_tab():
+    tab_id = mobile_stacks.get_register("tab-id")
+    label = mobile_stacks.get_register("label").strip()
+    if not label:
+        raise RuntimeError("tab label cannot be empty")
+    tabs[tab_id]["label"] = label
+    print("Mem RENAME_TAB:", tab_id, label)
+    mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
+
+
+def handle_when_mem_receives_delete_tab():
+    day_id = mobile_stacks.get_register("day-id")
+    tab_id = mobile_stacks.get_register("tab-id")
+    day = days[day_id]
+    deleted = len(day["tab-ids"]) > 1
+    if deleted:
+        old_index = day["tab-ids"].index(tab_id)
+        day["tab-ids"].remove(tab_id)
+        for row_id in tabs[tab_id]["row-ids"]:
+            row = rows.pop(row_id)
+            for column in range(1, row["column-count"] + 1):
+                positions.pop(get_position_id(row_id, column))
+        tabs.pop(tab_id)
+        day["selected-tab-id"] = day["tab-ids"][min(old_index, len(day["tab-ids"]) - 1)]
+    print("Mem DELETE_TAB:", tab_id, "deleted" if deleted else "kept final tab")
+    mobile_stacks.set_register(("day", deepcopy(day)))
+    mobile_stacks.set_register(("tab-id", tab_id))
+    mobile_stacks.set_register(("deleted", deleted))
 
 
 def handle_when_mem_receives_update_panel():

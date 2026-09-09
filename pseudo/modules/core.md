@@ -134,6 +134,12 @@ PSEUDOCODE:
   ADD_ROW -> Mem appends a minted one-column row
   -> Core reconciles the structurally changed day workspace
 
+  DELETE_ROW -> Mem removes a non-final row
+  SET_ROW_COLUMN_COUNT -> Mem changes one row's derived position slots
+
+  CREATE_TAB / DELETE_TAB -> Mem changes the day's ordered tab ids
+  RENAME_TAB -> Mem accepts a label; Core sends one targeted tab-label command
+
   SET_TAB_SCROLL_POSITION -> Mem accepts one tab's vertical fraction
   -> Core sends a targeted Tk scroll command
 

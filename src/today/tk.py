@@ -2,7 +2,7 @@
 
 import tkinter
 from queue import Empty
-from tkinter import ttk
+from tkinter import simpledialog, ttk
 
 
 COLORS = {
@@ -123,6 +123,11 @@ def build_today_window():
         padx=12,
     )
     widgets["date"].pack(side="left")
+    tab_actions = tkinter.Frame(top, background=COLORS["top"])
+    tab_actions.pack(side="right")
+    make_tab_action_button(tab_actions, "+", handle_when_user_clicks_create_tab_button)
+    make_tab_action_button(tab_actions, "Rename", handle_when_user_clicks_rename_tab_button)
+    make_tab_action_button(tab_actions, "x", handle_when_user_clicks_delete_tab_button)
 
     widgets["tabs"] = ttk.Notebook(g["root"], style="Page.TNotebook")
     widgets["tabs"].grid(row=1, column=0, sticky="nsew")
@@ -188,6 +193,68 @@ def handle_when_user_clicks_move_row_button(tab_id, row_id, direction):
 
 def handle_when_user_clicks_add_row_button(tab_id):
     g["outgoing-events"].put({"type": "ADD_ROW", "tab-id": tab_id})
+
+
+def handle_when_user_clicks_delete_row_button(tab_id, row_id):
+    g["outgoing-events"].put({"type": "DELETE_ROW", "tab-id": tab_id, "row-id": row_id})
+
+
+def handle_when_user_clicks_set_row_column_count_button(row_id, column_count):
+    g["outgoing-events"].put(
+        {"type": "SET_ROW_COLUMN_COUNT", "row-id": row_id, "column-count": column_count}
+    )
+
+
+def get_selected_tab_id():
+    selected_page = widgets["tabs"].select()
+    for tab_id, tab in tab_widgets.items():
+        if str(tab["page"]) == selected_page:
+            return tab_id
+    return None
+
+
+def handle_when_user_clicks_create_tab_button():
+    g["outgoing-events"].put({"type": "CREATE_TAB"})
+
+
+def handle_when_user_clicks_rename_tab_button():
+    tab_id = get_selected_tab_id()
+    if tab_id is None:
+        return
+    label = simpledialog.askstring(
+        "Rename tab",
+        "Tab name:",
+        initialvalue=widgets["tabs"].tab(tab_widgets[tab_id]["page"], "text"),
+        parent=g["root"],
+    )
+    if label is not None and label.strip():
+        g["outgoing-events"].put({"type": "RENAME_TAB", "tab-id": tab_id, "label": label.strip()})
+
+
+def handle_when_user_clicks_delete_tab_button():
+    tab_id = get_selected_tab_id()
+    if tab_id is None:
+        return
+    if len(tab_widgets) == 1:
+        widgets["status"].configure(text="A day keeps at least one tab.")
+        return
+    g["outgoing-events"].put({"type": "DELETE_TAB", "tab-id": tab_id})
+
+
+def make_tab_action_button(parent, text, command):
+    tkinter.Button(
+        parent,
+        text=text,
+        background=COLORS["control"],
+        foreground=COLORS["secondary-text"],
+        activebackground=COLORS["divider"],
+        activeforeground=COLORS["primary-text"],
+        relief="flat",
+        borderwidth=0,
+        padx=7,
+        pady=3,
+        command=command,
+    ).pack(side="left", padx=(4, 0))
 
 
 def handle_when_tab_canvas_resizes(event, tab_id):
@@ -339,6 +406,10 @@ def realize_core_command(command):
             panel["label"].configure(text=command["panel-label"])
         return
 
+    if command["type"] == "SET_TAB_LABEL":
+        widgets["tabs"].tab(tab_widgets[command["tab-id"]]["page"], text=command["tab-label"])
+        return
+
     if command["type"] == "SET_SELECTED_TAB":
         select_tab(command["tab-id"])
         return
@@ -405,7 +476,7 @@ def build_today_tabs(command):
             "scrollbar": scrollbar,
             "scroll-window": scroll_window,
             "scroll-position": tab["scroll-position"],
-            "applying-scroll-position": False,
+            "applying-scroll-position": True,
             "row-ids": [],
         }
         canvas.configure(
@@ -494,10 +565,28 @@ def build_tab_workspace(command, workspace):
                 ),
             }
         )
-        make_row_rail_button({"parent": controls, "text": "1", "row": 1})
-        make_row_rail_button({"parent": controls, "text": "2", "row": 2})
-        make_row_rail_button({"parent": controls, "text": "3", "row": 3})
-        make_row_rail_button({"parent": controls, "text": "x", "row": 4, "pady": (6, 1)})
+        for column_count in range(1, 4):
+            make_row_rail_button(
+                {
+                    "parent": controls,
+                    "text": str(column_count),
+                    "row": column_count,
+                    "command": lambda row_id=row["row-id"], column_count=column_count: handle_when_user_clicks_set_row_column_count_button(
+                        row_id, column_count
+                    ),
+                }
+            )
+        make_row_rail_button(
+            {
+                "parent": controls,
+                "text": "x",
+                "row": 4,
+                "pady": (6, 1),
+                "command": lambda tab_id=command["tab-id"], row_id=row["row-id"]: handle_when_user_clicks_delete_row_button(
+                    tab_id, row_id
+                ),
+            }
+        )
         make_row_rail_button(
             {
                 "parent": controls,

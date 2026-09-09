@@ -33,6 +33,9 @@ Stage 7F row controls emit `MOVE_ROW`. Tk rebuilds from Core only after Mem
 accepts the structural order change. The final row alone also offers `+` for
 `ADD_ROW`.
 
+The row rail's `1` / `2` / `3` / `x` controls send pane-count and row-deletion
+events. The header offers create, rename, and delete for the selected tab.
+
 Each tab is a scrollable surface. Settled scrolling emits
 `SET_TAB_SCROLL_POSITION`; Core's accepted position is reapplied to Tk.
 
