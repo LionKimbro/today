@@ -18,6 +18,8 @@ def main():
         "handlers": {
             "PANEL_RETURNED": core.handle_when_core_receives_panel_return,
             "PANEL_UPDATED": core.handle_when_core_receives_panel_update,
+            "DAY_LAYOUT_RETURNED": core.handle_when_core_receives_day_layout,
+            "HOSTING_RETURNED": core.handle_when_core_receives_hosting_update,
         },
         "running": False,
     }
@@ -26,8 +28,11 @@ def main():
         "inbox": mem_inbox,
         "current-stack": None,
         "handlers": {
+            "GET_DAY_LAYOUT": mem.handle_when_mem_receives_get_day_layout,
             "GET_PANEL": mem.handle_when_mem_receives_get_panel,
             "UPDATE_PANEL": mem.handle_when_mem_receives_update_panel,
+            "HOST_PANEL": mem.handle_when_mem_receives_host_panel,
+            "UNHOST_PANEL": mem.handle_when_mem_receives_unhost_panel,
         },
         "running": False,
     }

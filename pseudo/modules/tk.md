@@ -19,3 +19,6 @@ rendered panel identity. A late render does not re-enable it during closing.
 
 Stage 7B builds Core's fixed rows and positions. A hosted position builds its
 panel controls; an unhosted position visibly says it is empty.
+
+Stage 7C gives an empty position a chooser of eligible existing panels. A
+hosted position offers `Unhost panel`; neither control mutates Tk's model.

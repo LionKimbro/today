@@ -2,7 +2,8 @@
 
 ## Positions
 
-The current tab owns ordered row identities. `rows` maps each row id to its
+Mem canonically owns days, tabs, rows, positions, and panels. Core retains the
+active layout snapshot. The current tab owns ordered row identities. `rows` maps each row id to its
 logical column count: `1`, `2`, or `3`.
 
 `positions` maps a derived, durable position id to one hosting record.

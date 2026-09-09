@@ -105,6 +105,14 @@ PSEUDOCODE:
   RENDER_TODAY carries the complete fixed row/position structure
 
 
+  == Stage 7C canonical hosting ==
+
+  GET_DAY_LAYOUT loads Mem's active layout snapshot into Core
+  HOST_PANEL gets the panel, then asks Mem to host it
+  UNHOST_PANEL asks Mem to clear only the hosting relation
+  Mem's accepted return becomes a targeted RENDER_POSITION command
+
+
   == Canonical panel update ==
 
   RENAME_PANEL

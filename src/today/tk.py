@@ -10,8 +10,7 @@ g = {
     "closing": False,
     "rendering-text": False,
     "rendering-history": False,
-    "text-debounce-id": None,
-    "text-debounce-panel-id": None,
+    "text-debounce-ids": {},
     "outgoing-events": None,
     "incoming-commands": None,
 }
@@ -64,6 +63,21 @@ def handle_when_text_widget_changes(event, panel_id):
     schedule_text_debounce_for_panel(panel_id)
 
 
+def handle_when_user_selects_panel_for_empty_position(position_id):
+    panel_id = position_widgets[position_id]["choice"].get()
+    if panel_id == "":
+        return
+    send_text_debounce_if_one_is_waiting()
+    g["outgoing-events"].put(
+        {"type": "HOST_PANEL", "position-id": position_id, "panel-id": panel_id}
+    )
+
+
+def handle_when_user_clicks_unhost_panel_button(position_id):
+    send_text_debounce_if_one_is_waiting()
+    g["outgoing-events"].put({"type": "UNHOST_PANEL", "position-id": position_id})
+
+
 def handle_when_user_moves_history_cursor(value, panel_id):
     if g["rendering-history"]:
         return
@@ -81,24 +95,23 @@ def handle_when_user_clicks_snapshot_button(panel_id):
 
 
 def schedule_text_debounce_for_panel(panel_id):
-    if g["text-debounce-id"] is not None:
-        g["root"].after_cancel(g["text-debounce-id"])
-    g["text-debounce-panel-id"] = panel_id
-    g["text-debounce-id"] = g["root"].after(1000, handle_when_text_debounce_expires)
+    if panel_id in g["text-debounce-ids"]:
+        g["root"].after_cancel(g["text-debounce-ids"][panel_id])
+    g["text-debounce-ids"][panel_id] = g["root"].after(
+        1000,
+        lambda: handle_when_text_debounce_expires(panel_id),
+    )
 
 
-def handle_when_text_debounce_expires():
-    panel_id = g["text-debounce-panel-id"]
-    g["text-debounce-id"] = None
-    g["text-debounce-panel-id"] = None
+def handle_when_text_debounce_expires(panel_id):
+    g["text-debounce-ids"].pop(panel_id, None)
     g["outgoing-events"].put({"type": "TEXT_DEBOUNCE", "panel-id": panel_id})
 
 
 def send_text_debounce_if_one_is_waiting():
-    if g["text-debounce-id"] is None:
-        return
-    g["root"].after_cancel(g["text-debounce-id"])
-    handle_when_text_debounce_expires()
+    for panel_id, after_id in list(g["text-debounce-ids"].items()):
+        g["root"].after_cancel(after_id)
+        handle_when_text_debounce_expires(panel_id)
 
 
 def handle_when_user_requests_window_close():
@@ -122,9 +135,12 @@ def realize_core_command(command):
         build_tab_workspace(command)
         return
 
-    if command["type"] == "RENDER_HOSTED_PANEL":
+    if command["type"] == "RENDER_POSITION":
         clear_position_host(command["position-id"])
-        render_hosted_panel(command)
+        if command["panel-id"] is None:
+            render_empty_position(command)
+        else:
+            render_hosted_panel(command)
         return
 
     if command["type"] == "RENDER_WHITEBOARD_VIEW":
@@ -176,9 +192,19 @@ def clear_position_host(position_id):
 
 
 def render_empty_position(command):
-    host = position_widgets[command["position-id"]]["host"]
+    position = position_widgets[command["position-id"]]
+    host = position["host"]
     ttk.Label(host, text=command["position-id"]).grid(row=0, column=0, sticky="w")
-    ttk.Label(host, text="Empty position").grid(row=1, column=0, sticky="w", pady=(12, 0))
+    choice = ttk.Combobox(host, values=command["available-panel-ids"], state="readonly")
+    choice.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+    choice.set("Choose existing panel")
+    choice.bind(
+        "<<ComboboxSelected>>",
+        lambda event, position_id=command["position-id"]: handle_when_user_selects_panel_for_empty_position(
+            position_id
+        ),
+    )
+    position["choice"] = choice
 
 
 def render_hosted_panel(command):
@@ -197,6 +223,14 @@ def render_hosted_panel(command):
         command=lambda panel_id=command["panel-id"]: handle_when_user_clicks_snapshot_button(panel_id),
     )
     snapshot_button.grid(row=1, column=1, sticky="e", pady=(12, 0))
+    unhost_button = ttk.Button(
+        host,
+        text="Unhost panel",
+        command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(
+            position_id
+        ),
+    )
+    unhost_button.grid(row=0, column=1, sticky="e")
     text = tkinter.Text(host, height=10, wrap="word")
     text.grid(row=2, column=0, sticky="nsew", pady=(16, 0))
     text.bind(

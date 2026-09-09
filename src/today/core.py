@@ -11,6 +11,8 @@ g = {
     "send-tk-command": None,
     "reducer-events": [],
     "effects": [],
+    "known-panel-ids": [],
+    "pending-initial-panel-ids": [],
 }
 
 tabs = {}
@@ -21,22 +23,33 @@ visible_panels = {}
 
 def initialize_core_state():
     g["today-id"] = date.today().isoformat()
-    tabs["tab-a"] = {"id": "tab-a", "label": "Tab A", "row-ids": ["row-a", "row-b"]}
-    rows["row-a"] = {"id": "row-a", "tab-id": "tab-a", "column-count": 2}
-    rows["row-b"] = {"id": "row-b", "tab-id": "tab-a", "column-count": 1}
-    positions["row-a/column-1"] = {"panel-id": "whiteboard-a"}
-    positions["row-a/column-2"] = {"panel-id": None}
-    positions["row-b/column-1"] = {"panel-id": None}
 
 
 def get_position_id(row_id, column):
     return f"{row_id}/column-{column}"
 
 
+def get_tab_id_for_position(position_id):
+    row_id = position_id.split("/", 1)[0]
+    return rows[row_id]["tab-id"]
+
+
+def get_position_ids_for_tab(tab_id):
+    return [
+        get_position_id(row_id, column)
+        for row_id in tabs[tab_id]["row-ids"]
+        for column in range(1, rows[row_id]["column-count"] + 1)
+    ]
+
+
 def get_position_rendering(position_id):
     panel_id = positions[position_id]["panel-id"]
     if panel_id is None:
-        return {"position-id": position_id, "panel-id": None}
+        return {
+            "position-id": position_id,
+            "panel-id": None,
+            "available-panel-ids": get_available_panel_ids(position_id),
+        }
 
     panel = visible_panels[panel_id]
     return {
@@ -46,6 +59,16 @@ def get_position_rendering(position_id):
         "panel-type": panel["type"],
         **get_whiteboard_view(panel),
     }
+
+
+def get_available_panel_ids(position_id):
+    tab_id = get_tab_id_for_position(position_id)
+    hosted_panel_ids = {
+        positions[position_id]["panel-id"]
+        for position_id in get_position_ids_for_tab(tab_id)
+    }
+    hosted_panel_ids.discard(None)
+    return [panel_id for panel_id in g["known-panel-ids"] if panel_id not in hosted_panel_ids]
 
 
 def get_tab_rendering(tab_id):
@@ -128,12 +151,34 @@ def make_whiteboard_snapshot(panel):
 
 def reduce_event(event):
     if event["type"] == "START":
-        return [{"type": "GET_PANEL", "panel-id": "whiteboard-a"}]
+        return [{"type": "GET_DAY_LAYOUT", "day-id": g["today-id"]}]
+
+    if event["type"] == "DAY_LAYOUT_RECEIVED":
+        layout = event["layout"]
+        g["today-id"] = layout["day"]["id"]
+        g["known-panel-ids"] = layout["panel-ids"]
+        tabs.clear()
+        tabs.update(layout["tabs"])
+        rows.clear()
+        rows.update(layout["rows"])
+        positions.clear()
+        positions.update(layout["positions"])
+        g["pending-initial-panel-ids"] = sorted(
+            {position["panel-id"] for position in positions.values() if position["panel-id"] is not None}
+        )
+        return [
+            {"type": "GET_PANEL", "panel-id": panel_id}
+            for panel_id in g["pending-initial-panel-ids"]
+        ]
 
     if event["type"] == "PANEL_RECEIVED":
         install_panel_snapshot(event["panel"])
         print("Core reducer: PANEL_RECEIVED", event["panel-id"])
-        return [{"type": "RENDER_TODAY"}]
+        if event["panel-id"] in g["pending-initial-panel-ids"]:
+            g["pending-initial-panel-ids"].remove(event["panel-id"])
+        if not g["pending-initial-panel-ids"]:
+            return [{"type": "RENDER_TODAY"}]
+        return []
 
     if event["type"] == "HOST_PANEL":
         return [
@@ -154,9 +199,30 @@ def reduce_event(event):
                     history_cursor,
                     len(visible_panels[event["panel-id"]]["history"]),
                 )
+        return [
+            {
+                "type": "HOST_PANEL",
+                "position-id": event["position-id"],
+                "panel-id": event["panel-id"],
+            }
+        ]
+
+    if event["type"] == "UNHOST_PANEL":
+        return [{"type": "UNHOST_PANEL", "position-id": event["position-id"]}]
+
+    if event["type"] == "HOSTING_CHANGED":
         positions[event["position-id"]]["panel-id"] = event["panel-id"]
-        print("Core reducer:", event["position-id"], "hosts", event["panel-id"])
-        return [{"type": "RENDER_HOSTED_PANEL", "position-id": event["position-id"]}]
+        if event["unhosted-position-id"] is not None:
+            positions[event["unhosted-position-id"]]["panel-id"] = None
+        tab_id = get_tab_id_for_position(event["position-id"])
+        position_ids_to_render = [event["position-id"]]
+        for position_id in get_position_ids_for_tab(tab_id):
+            if positions[position_id]["panel-id"] is None:
+                position_ids_to_render.append(position_id)
+        return [
+            {"type": "RENDER_POSITION", "position-id": position_id}
+            for position_id in dict.fromkeys(position_ids_to_render)
+        ]
 
     if event["type"] == "RENAME_PANEL":
         if event["panel-id"] not in visible_panels:
@@ -244,6 +310,14 @@ def reduce_event(event):
 
 
 def dispatch_effect(effect):
+    if effect["type"] == "GET_DAY_LAYOUT":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-id", effect["day-id"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "DAY_LAYOUT_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "GET_DAY_LAYOUT"})
+        machine.route_current_stack()
+        return
+
     if effect["type"] == "GET_PANEL":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("panel-id", effect["panel-id"]))
@@ -251,6 +325,23 @@ def dispatch_effect(effect):
             mobile_stacks.set_register(("position-id", effect["position-id"]))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "PANEL_RETURNED"})
         mobile_stacks.push_frame({"machine": "MEM", "entry": "GET_PANEL"})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "HOST_PANEL":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("position-id", effect["position-id"]))
+        mobile_stacks.set_register(("panel-id", effect["panel-id"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "HOSTING_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "HOST_PANEL"})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "UNHOST_PANEL":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("position-id", effect["position-id"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "HOSTING_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "UNHOST_PANEL"})
         machine.route_current_stack()
         return
 
@@ -284,10 +375,10 @@ def dispatch_effect(effect):
         )
         return
 
-    if effect["type"] == "RENDER_HOSTED_PANEL":
+    if effect["type"] == "RENDER_POSITION":
         g["send-tk-command"](
             {
-                "type": "RENDER_HOSTED_PANEL",
+                "type": "RENDER_POSITION",
                 **get_position_rendering(effect["position-id"]),
             }
         )
@@ -356,6 +447,23 @@ def handle_when_core_receives_panel_return():
             "type": "PANEL_RECEIVED",
             "panel-id": panel_id,
             "panel": deepcopy(mobile_stacks.get_register("panel")),
+        }
+    )
+
+
+def handle_when_core_receives_day_layout():
+    g["reducer-events"].append(
+        {"type": "DAY_LAYOUT_RECEIVED", "layout": deepcopy(mobile_stacks.get_register("layout"))}
+    )
+
+
+def handle_when_core_receives_hosting_update():
+    g["reducer-events"].append(
+        {
+            "type": "HOSTING_CHANGED",
+            "position-id": mobile_stacks.get_register("position-id"),
+            "panel-id": mobile_stacks.get_register("panel-id"),
+            "unhosted-position-id": mobile_stacks.get_register("unhosted-position-id"),
         }
     )
 
