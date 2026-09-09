@@ -22,8 +22,8 @@ Introduce the real layout grouping and canonical tab-selection semantics.
 
 ## 7E — Resize
 
-Add splitter behavior while keeping Core authoritative over the resulting layout
-meaning.
+Add row and pane splitter behavior while keeping Core authoritative over the
+resulting layout meaning.
 
 ## 7F — Rearrangement
 

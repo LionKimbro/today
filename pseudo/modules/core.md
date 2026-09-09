@@ -119,6 +119,13 @@ PSEUDOCODE:
   -> SET_SELECTED_TAB command to Tk
 
 
+  == Stage 7E geometry ==
+
+  SET_ROW_HEIGHT and SET_SASH_PROPORTIONS
+  -> Mem accepts one row's geometry
+  -> Core sends targeted Tk geometry command
+
+
   == Canonical panel update ==
 
   RENAME_PANEL

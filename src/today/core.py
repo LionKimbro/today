@@ -80,6 +80,8 @@ def get_tab_rendering(tab_id):
             {
                 "row-id": row_id,
                 "column-count": rows[row_id]["column-count"],
+                "height": rows[row_id]["height"],
+                "sash-proportions": rows[row_id]["sash-proportions"],
                 "positions": [
                     get_position_rendering(get_position_id(row_id, column))
                     for column in range(1, rows[row_id]["column-count"] + 1)
@@ -207,6 +209,24 @@ def reduce_event(event):
     if event["type"] == "TAB_SELECTED":
         g["selected-tab-id"] = event["tab-id"]
         return [{"type": "SET_SELECTED_TAB", "tab-id": event["tab-id"]}]
+
+    if event["type"] == "SET_ROW_HEIGHT":
+        return [{"type": "REQUEST_ROW_HEIGHT", "row-id": event["row-id"], "height": event["height"]}]
+
+    if event["type"] == "SET_SASH_PROPORTIONS":
+        return [
+            {
+                "type": "REQUEST_SASH_PROPORTIONS",
+                "row-id": event["row-id"],
+                "sash-proportions": event["sash-proportions"],
+            }
+        ]
+
+    if event["type"] == "ROW_LAYOUT_CHANGED":
+        rows[event["row"]["id"]] = event["row"]
+        if event["layout-change"] == "ROW_HEIGHT":
+            return [{"type": "SET_ROW_HEIGHT", "row-id": event["row"]["id"]}]
+        return [{"type": "SET_SASH_PROPORTIONS", "row-id": event["row"]["id"]}]
 
     if event["type"] == "PANEL_FOR_HOSTING_RECEIVED":
         panel = visible_panels.get(event["panel-id"])
@@ -365,6 +385,24 @@ def dispatch_effect(effect):
         machine.route_current_stack()
         return
 
+    if effect["type"] == "REQUEST_ROW_HEIGHT":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("row-id", effect["row-id"]))
+        mobile_stacks.set_register(("height", effect["height"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "ROW_LAYOUT_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "SET_ROW_HEIGHT"})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "REQUEST_SASH_PROPORTIONS":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("row-id", effect["row-id"]))
+        mobile_stacks.set_register(("sash-proportions", effect["sash-proportions"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "ROW_LAYOUT_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "SET_SASH_PROPORTIONS"})
+        machine.route_current_stack()
+        return
+
     if effect["type"] == "UNHOST_PANEL":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("position-id", effect["position-id"]))
@@ -414,6 +452,22 @@ def dispatch_effect(effect):
 
     if effect["type"] == "SET_SELECTED_TAB":
         g["send-tk-command"]({"type": "SET_SELECTED_TAB", "tab-id": effect["tab-id"]})
+        return
+
+    if effect["type"] == "SET_ROW_HEIGHT":
+        g["send-tk-command"](
+            {"type": "SET_ROW_HEIGHT", "row-id": effect["row-id"], "height": rows[effect["row-id"]]["height"]}
+        )
+        return
+
+    if effect["type"] == "SET_SASH_PROPORTIONS":
+        g["send-tk-command"](
+            {
+                "type": "SET_SASH_PROPORTIONS",
+                "row-id": effect["row-id"],
+                "sash-proportions": rows[effect["row-id"]]["sash-proportions"],
+            }
+        )
         return
 
     if effect["type"] == "RENDER_WHITEBOARD_VIEW":
@@ -503,6 +557,16 @@ def handle_when_core_receives_hosting_update():
 def handle_when_core_receives_selected_tab():
     g["reducer-events"].append(
         {"type": "TAB_SELECTED", "tab-id": mobile_stacks.get_register("tab-id")}
+    )
+
+
+def handle_when_core_receives_row_layout():
+    g["reducer-events"].append(
+        {
+            "type": "ROW_LAYOUT_CHANGED",
+            "row": deepcopy(mobile_stacks.get_register("row")),
+            "layout-change": mobile_stacks.get_register("layout-change"),
+        }
     )
 
 

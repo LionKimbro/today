@@ -6,6 +6,8 @@ Core and Mem communicate with Mobile Stacks.
 | --- | --- | --- | --- |
 | `GET_DAY_LAYOUT` | `DAY_LAYOUT_RETURNED` | `day-id` | `layout` |
 | `SELECT_TAB` | `SELECTED_TAB_RETURNED` | `day-id`, `tab-id` | `day-id`, `tab-id` |
+| `SET_ROW_HEIGHT` | `ROW_LAYOUT_RETURNED` | `row-id`, `height` | `row`, `layout-change` |
+| `SET_SASH_PROPORTIONS` | `ROW_LAYOUT_RETURNED` | `row-id`, `sash-proportions` | `row`, `layout-change` |
 | `GET_PANEL` | `PANEL_RETURNED` | `panel-id` | `panel` |
 | `UPDATE_PANEL` | `PANEL_UPDATED` | `panel-id`, `base-revision`, `proposed-panel` | `update-result`, `panel` |
 | `HOST_PANEL` | `HOSTING_RETURNED` | `position-id`, `panel-id` | `position-id`, `panel-id`, `unhosted-position-id` |
@@ -15,6 +17,9 @@ Core and Mem communicate with Mobile Stacks.
 panel ids. Core keeps an active copy for reduction and rendering.
 
 `SELECT_TAB` changes the selected tab in the canonical day record.
+
+The geometry operations update one canonical row. Tk supplies measured sash
+results; Core renders Mem's accepted row geometry back to Tk.
 
 `HOST_PANEL` changes Mem's canonical hosting record. If the panel already
 appears elsewhere in the same tab, Mem unhosts that earlier position and

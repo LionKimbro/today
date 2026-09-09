@@ -31,10 +31,34 @@ def initialize_mem_store():
         "label": "Tab B",
         "row-ids": ["row-c", "row-d"],
     }
-    rows["row-a"] = {"id": "row-a", "tab-id": "tab-a", "column-count": 2}
-    rows["row-b"] = {"id": "row-b", "tab-id": "tab-a", "column-count": 1}
-    rows["row-c"] = {"id": "row-c", "tab-id": "tab-b", "column-count": 2}
-    rows["row-d"] = {"id": "row-d", "tab-id": "tab-b", "column-count": 1}
+    rows["row-a"] = {
+        "id": "row-a",
+        "tab-id": "tab-a",
+        "column-count": 2,
+        "height": 260,
+        "sash-proportions": [0.5],
+    }
+    rows["row-b"] = {
+        "id": "row-b",
+        "tab-id": "tab-a",
+        "column-count": 1,
+        "height": 160,
+        "sash-proportions": [],
+    }
+    rows["row-c"] = {
+        "id": "row-c",
+        "tab-id": "tab-b",
+        "column-count": 2,
+        "height": 260,
+        "sash-proportions": [0.5],
+    }
+    rows["row-d"] = {
+        "id": "row-d",
+        "tab-id": "tab-b",
+        "column-count": 1,
+        "height": 160,
+        "sash-proportions": [],
+    }
     positions["row-a/column-1"] = {"panel-id": "whiteboard-a"}
     positions["row-a/column-2"] = {"panel-id": "whiteboard-b"}
     positions["row-b/column-1"] = {"panel-id": None}
@@ -120,6 +144,22 @@ def handle_when_mem_receives_select_tab():
     print("Mem SELECT_TAB:", day_id, tab_id)
     mobile_stacks.set_register(("day-id", day_id))
     mobile_stacks.set_register(("tab-id", tab_id))
+
+
+def handle_when_mem_receives_set_row_height():
+    row_id = mobile_stacks.get_register("row-id")
+    rows[row_id]["height"] = mobile_stacks.get_register("height")
+    print("Mem SET_ROW_HEIGHT:", row_id, rows[row_id]["height"])
+    mobile_stacks.set_register(("row", deepcopy(rows[row_id])))
+    mobile_stacks.set_register(("layout-change", "ROW_HEIGHT"))
+
+
+def handle_when_mem_receives_set_sash_proportions():
+    row_id = mobile_stacks.get_register("row-id")
+    rows[row_id]["sash-proportions"] = mobile_stacks.get_register("sash-proportions")
+    print("Mem SET_SASH_PROPORTIONS:", row_id, rows[row_id]["sash-proportions"])
+    mobile_stacks.set_register(("row", deepcopy(rows[row_id])))
+    mobile_stacks.set_register(("layout-change", "SASH_PROPORTIONS"))
 
 
 def handle_when_mem_receives_update_panel():

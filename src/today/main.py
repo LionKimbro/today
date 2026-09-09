@@ -21,6 +21,7 @@ def main():
             "DAY_LAYOUT_RETURNED": core.handle_when_core_receives_day_layout,
             "HOSTING_RETURNED": core.handle_when_core_receives_hosting_update,
             "SELECTED_TAB_RETURNED": core.handle_when_core_receives_selected_tab,
+            "ROW_LAYOUT_RETURNED": core.handle_when_core_receives_row_layout,
         },
         "running": False,
     }
@@ -32,6 +33,8 @@ def main():
             "GET_DAY_LAYOUT": mem.handle_when_mem_receives_get_day_layout,
             "GET_PANEL": mem.handle_when_mem_receives_get_panel,
             "SELECT_TAB": mem.handle_when_mem_receives_select_tab,
+            "SET_ROW_HEIGHT": mem.handle_when_mem_receives_set_row_height,
+            "SET_SASH_PROPORTIONS": mem.handle_when_mem_receives_set_sash_proportions,
             "UPDATE_PANEL": mem.handle_when_mem_receives_update_panel,
             "HOST_PANEL": mem.handle_when_mem_receives_host_panel,
             "UNHOST_PANEL": mem.handle_when_mem_receives_unhost_panel,

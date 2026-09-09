@@ -18,6 +18,7 @@ g = {
 
 widgets = {}
 tab_widgets = {}
+row_widgets = {}
 panel_widgets = {}
 position_widgets = {}
 
@@ -25,7 +26,7 @@ position_widgets = {}
 def build_today_window():
     g["root"] = tkinter.Tk()
     g["root"].title("Today")
-    g["root"].minsize(420, 300)
+    g["root"].minsize(700, 500)
     g["root"].protocol("WM_DELETE_WINDOW", handle_when_user_requests_window_close)
     g["root"].bind("<<CoreMailAvailable>>", handle_when_core_mail_arrives)
 
@@ -83,6 +84,31 @@ def handle_when_user_selects_tab(event):
         if str(tab["page"]) == page:
             g["outgoing-events"].put({"type": "SELECT_TAB", "tab-id": tab_id})
             return
+
+
+def handle_when_user_releases_pane_sash(event, row_id):
+    pane = row_widgets[row_id]["pane"]
+    width = pane.winfo_width()
+    if width <= 1:
+        return
+    sash_proportions = [
+        pane.sashpos(index) / width
+        for index in range(len(row_widgets[row_id]["sash-proportions"]))
+    ]
+    g["outgoing-events"].put(
+        {"type": "SET_SASH_PROPORTIONS", "row-id": row_id, "sash-proportions": sash_proportions}
+    )
+
+
+def handle_when_user_releases_row_sash(event, tab_id):
+    for row_id in tab_widgets[tab_id]["row-ids"]:
+        g["outgoing-events"].put(
+            {
+                "type": "SET_ROW_HEIGHT",
+                "row-id": row_id,
+                "height": row_widgets[row_id]["frame"].winfo_height(),
+            }
+        )
 
 
 def handle_when_user_moves_history_cursor(value, panel_id):
@@ -166,6 +192,16 @@ def realize_core_command(command):
         select_tab(command["tab-id"])
         return
 
+    if command["type"] == "SET_ROW_HEIGHT":
+        row_widgets[command["row-id"]]["height"] = command["height"]
+        apply_tab_row_heights(row_widgets[command["row-id"]]["tab-id"])
+        return
+
+    if command["type"] == "SET_SASH_PROPORTIONS":
+        row_widgets[command["row-id"]]["sash-proportions"] = command["sash-proportions"]
+        apply_row_sash_proportions(command["row-id"])
+        return
+
     if command["type"] == "SHUTDOWN_COMPLETE":
         g["root"].destroy()
 
@@ -174,13 +210,14 @@ def build_today_tabs(command):
     for child in widgets["tabs"].winfo_children():
         child.destroy()
     tab_widgets.clear()
+    row_widgets.clear()
     panel_widgets.clear()
     position_widgets.clear()
 
     for tab in command["tabs"]:
         page = ttk.Frame(widgets["tabs"], padding=12)
         widgets["tabs"].add(page, text=tab["tab-label"])
-        tab_widgets[tab["tab-id"]] = {"page": page}
+        tab_widgets[tab["tab-id"]] = {"page": page, "row-ids": []}
         build_tab_workspace(tab, page)
 
     select_tab(command["selected-tab-id"])
@@ -198,16 +235,38 @@ def handle_after_selecting_tab():
 
 def build_tab_workspace(command, workspace):
     workspace.columnconfigure(0, weight=1)
+    workspace.rowconfigure(0, weight=1)
+    rows_pane = ttk.Panedwindow(workspace, orient="vertical")
+    rows_pane.grid(row=0, column=0, sticky="nsew")
+    tab_widgets[command["tab-id"]]["rows-pane"] = rows_pane
+    rows_pane.bind(
+        "<ButtonRelease-1>",
+        lambda event, tab_id=command["tab-id"]: handle_when_user_releases_row_sash(event, tab_id),
+    )
+
     for row_number, row in enumerate(command["rows"]):
-        row_frame = ttk.Frame(workspace)
-        row_frame.grid(row=row_number, column=0, sticky="nsew", pady=(0, 12))
+        row_frame = ttk.Frame(rows_pane)
+        rows_pane.add(row_frame, weight=1)
+        tab_widgets[command["tab-id"]]["row-ids"].append(row["row-id"])
+        row_pane = ttk.Panedwindow(row_frame, orient="horizontal")
+        row_pane.grid(row=0, column=0, sticky="nsew")
+        row_frame.columnconfigure(0, weight=1)
         row_frame.rowconfigure(0, weight=1)
-        workspace.rowconfigure(row_number, weight=1)
+        row_pane.bind(
+            "<ButtonRelease-1>",
+            lambda event, row_id=row["row-id"]: handle_when_user_releases_pane_sash(event, row_id),
+        )
+        row_widgets[row["row-id"]] = {
+            "tab-id": command["tab-id"],
+            "frame": row_frame,
+            "pane": row_pane,
+            "height": row["height"],
+            "sash-proportions": row["sash-proportions"],
+        }
 
         for column_number, position in enumerate(row["positions"]):
-            row_frame.columnconfigure(column_number, weight=1)
-            host = ttk.Frame(row_frame, relief="solid", borderwidth=1, padding=12)
-            host.grid(row=0, column=column_number, sticky="nsew", padx=(0, 12))
+            host = ttk.Frame(row_pane, relief="solid", borderwidth=1, padding=12)
+            row_pane.add(host, weight=1)
             position_widgets[position["position-id"]] = {
                 "host": host,
                 "panel-id": None,
@@ -217,6 +276,33 @@ def build_tab_workspace(command, workspace):
                 render_empty_position(position)
             else:
                 render_hosted_panel(position)
+
+    g["root"].after_idle(lambda tab_id=command["tab-id"]: apply_tab_geometry(tab_id))
+
+
+def apply_tab_geometry(tab_id):
+    apply_tab_row_heights(tab_id)
+    for row_id in tab_widgets[tab_id]["row-ids"]:
+        apply_row_sash_proportions(row_id)
+
+
+def apply_tab_row_heights(tab_id):
+    rows_pane = tab_widgets[tab_id]["rows-pane"]
+    heights = [row_widgets[row_id]["height"] for row_id in tab_widgets[tab_id]["row-ids"]]
+    if rows_pane.winfo_height() <= 1 or len(heights) < 2:
+        return
+    cumulative_height = 0
+    for index, height in enumerate(heights[:-1]):
+        cumulative_height += height
+        rows_pane.sashpos(index, cumulative_height)
+
+
+def apply_row_sash_proportions(row_id):
+    pane = row_widgets[row_id]["pane"]
+    if pane.winfo_width() <= 1:
+        return
+    for index, proportion in enumerate(row_widgets[row_id]["sash-proportions"]):
+        pane.sashpos(index, int(pane.winfo_width() * proportion))
 
 
 def clear_position_host(position_id):
