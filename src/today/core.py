@@ -13,6 +13,7 @@ g = {
     "effects": [],
     "known-panel-ids": [],
     "pending-initial-panel-ids": [],
+    "selected-tab-id": None,
 }
 
 tabs = {}
@@ -89,6 +90,16 @@ def get_tab_rendering(tab_id):
     }
 
 
+def get_day_rendering():
+    return {
+        "tabs": [
+            {"tab-id": tab_id, **get_tab_rendering(tab_id)}
+            for tab_id in tabs
+        ],
+        "selected-tab-id": g["selected-tab-id"],
+    }
+
+
 def install_panel_snapshot(panel):
     snapshot = dict(panel)
     snapshot["dirty"] = False
@@ -156,6 +167,7 @@ def reduce_event(event):
     if event["type"] == "DAY_LAYOUT_RECEIVED":
         layout = event["layout"]
         g["today-id"] = layout["day"]["id"]
+        g["selected-tab-id"] = layout["day"]["selected-tab-id"]
         g["known-panel-ids"] = layout["panel-ids"]
         tabs.clear()
         tabs.update(layout["tabs"])
@@ -188,6 +200,13 @@ def reduce_event(event):
                 "position-id": event["position-id"],
             }
         ]
+
+    if event["type"] == "SELECT_TAB":
+        return [{"type": "SELECT_TAB", "tab-id": event["tab-id"]}]
+
+    if event["type"] == "TAB_SELECTED":
+        g["selected-tab-id"] = event["tab-id"]
+        return [{"type": "SET_SELECTED_TAB", "tab-id": event["tab-id"]}]
 
     if event["type"] == "PANEL_FOR_HOSTING_RECEIVED":
         panel = visible_panels.get(event["panel-id"])
@@ -297,7 +316,7 @@ def reduce_event(event):
             return [prepare_whiteboard_update(event["panel-id"])]
         install_panel_snapshot(accepted_panel)
         print("Core reducer: WHITEBOARD_UPDATED", event["panel-id"], "revision", accepted_panel["revision"])
-        return [{"type": "SET_WHITEBOARD_HISTORY_CURSOR", "panel-id": event["panel-id"]}]
+        return [{"type": "RENDER_WHITEBOARD_VIEW", "panel-id": event["panel-id"]}]
 
     if event["type"] == "PANEL_UPDATE_CONFLICT":
         print("Core reducer: PANEL_UPDATE_CONFLICT", event["panel-id"], "revision", event["panel"]["revision"])
@@ -337,6 +356,15 @@ def dispatch_effect(effect):
         machine.route_current_stack()
         return
 
+    if effect["type"] == "SELECT_TAB":
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-id", g["today-id"]))
+        mobile_stacks.set_register(("tab-id", effect["tab-id"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "SELECTED_TAB_RETURNED"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "SELECT_TAB"})
+        machine.route_current_stack()
+        return
+
     if effect["type"] == "UNHOST_PANEL":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("position-id", effect["position-id"]))
@@ -363,7 +391,7 @@ def dispatch_effect(effect):
             {
                 "type": "RENDER_TODAY",
                 "today-id": g["today-id"],
-                **get_tab_rendering("tab-a"),
+                **get_day_rendering(),
             }
         )
         return
@@ -382,6 +410,10 @@ def dispatch_effect(effect):
                 **get_position_rendering(effect["position-id"]),
             }
         )
+        return
+
+    if effect["type"] == "SET_SELECTED_TAB":
+        g["send-tk-command"]({"type": "SET_SELECTED_TAB", "tab-id": effect["tab-id"]})
         return
 
     if effect["type"] == "RENDER_WHITEBOARD_VIEW":
@@ -465,6 +497,12 @@ def handle_when_core_receives_hosting_update():
             "panel-id": mobile_stacks.get_register("panel-id"),
             "unhosted-position-id": mobile_stacks.get_register("unhosted-position-id"),
         }
+    )
+
+
+def handle_when_core_receives_selected_tab():
+    g["reducer-events"].append(
+        {"type": "TAB_SELECTED", "tab-id": mobile_stacks.get_register("tab-id")}
     )
 
 

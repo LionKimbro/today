@@ -113,6 +113,12 @@ PSEUDOCODE:
   Mem's accepted return becomes a targeted RENDER_POSITION command
 
 
+  == Stage 7D selected tab ==
+
+  SELECT_TAB -> Mem -> accepted selected tab
+  -> SET_SELECTED_TAB command to Tk
+
+
   == Canonical panel update ==
 
   RENAME_PANEL

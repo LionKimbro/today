@@ -14,13 +14,33 @@ panels = {}
 
 def initialize_mem_store():
     today_id = date.today().isoformat()
-    days[today_id] = {"id": today_id, "tab-ids": ["tab-a"], "selected-tab-id": "tab-a"}
-    tabs["tab-a"] = {"id": "tab-a", "day-id": today_id, "label": "Tab A", "row-ids": ["row-a", "row-b"]}
+    days[today_id] = {
+        "id": today_id,
+        "tab-ids": ["tab-a", "tab-b"],
+        "selected-tab-id": "tab-a",
+    }
+    tabs["tab-a"] = {
+        "id": "tab-a",
+        "day-id": today_id,
+        "label": "Tab A",
+        "row-ids": ["row-a", "row-b"],
+    }
+    tabs["tab-b"] = {
+        "id": "tab-b",
+        "day-id": today_id,
+        "label": "Tab B",
+        "row-ids": ["row-c", "row-d"],
+    }
     rows["row-a"] = {"id": "row-a", "tab-id": "tab-a", "column-count": 2}
     rows["row-b"] = {"id": "row-b", "tab-id": "tab-a", "column-count": 1}
+    rows["row-c"] = {"id": "row-c", "tab-id": "tab-b", "column-count": 2}
+    rows["row-d"] = {"id": "row-d", "tab-id": "tab-b", "column-count": 1}
     positions["row-a/column-1"] = {"panel-id": "whiteboard-a"}
     positions["row-a/column-2"] = {"panel-id": "whiteboard-b"}
     positions["row-b/column-1"] = {"panel-id": None}
+    positions["row-c/column-1"] = {"panel-id": "whiteboard-a"}
+    positions["row-c/column-2"] = {"panel-id": "whiteboard-c"}
+    positions["row-d/column-1"] = {"panel-id": None}
     panels["whiteboard-a"] = {
         "id": "whiteboard-a",
         "type": "WHITEBOARD",
@@ -89,6 +109,17 @@ def handle_when_mem_receives_get_panel():
     panel_id = mobile_stacks.get_register("panel-id")
     print("Mem GET_PANEL:", panel_id)
     mobile_stacks.set_register(("panel", deepcopy(panels[panel_id])))
+
+
+def handle_when_mem_receives_select_tab():
+    day_id = mobile_stacks.get_register("day-id")
+    tab_id = mobile_stacks.get_register("tab-id")
+    if tab_id not in days[day_id]["tab-ids"]:
+        raise RuntimeError(f"tab {tab_id} is not in day {day_id}")
+    days[day_id]["selected-tab-id"] = tab_id
+    print("Mem SELECT_TAB:", day_id, tab_id)
+    mobile_stacks.set_register(("day-id", day_id))
+    mobile_stacks.set_register(("tab-id", tab_id))
 
 
 def handle_when_mem_receives_update_panel():

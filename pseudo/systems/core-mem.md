@@ -1,7 +1,7 @@
 # Core / Mem seam
 
 Core creates Mobile Stacks for `GET_DAY_LAYOUT`, `GET_PANEL`, panel updates,
-and canonical hosting changes.
+canonical hosting changes, and selected-tab changes.
 
 Mem places an independent copy of `panel` in its registers and returns the
 same stack to Core. Core copies retained result data into its reducer event

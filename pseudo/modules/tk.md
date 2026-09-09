@@ -22,3 +22,6 @@ panel controls; an unhosted position visibly says it is empty.
 
 Stage 7C gives an empty position a chooser of eligible existing panels. A
 hosted position offers `Unhost panel`; neither control mutates Tk's model.
+
+Stage 7D renders each day tab as a Notebook page. User selection emits
+`SELECT_TAB`; Core's accepted `SET_SELECTED_TAB` selects the page.

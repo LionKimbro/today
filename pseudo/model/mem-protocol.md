@@ -5,6 +5,7 @@ Core and Mem communicate with Mobile Stacks.
 | Operation | Core continuation | Registers in | Registers back |
 | --- | --- | --- | --- |
 | `GET_DAY_LAYOUT` | `DAY_LAYOUT_RETURNED` | `day-id` | `layout` |
+| `SELECT_TAB` | `SELECTED_TAB_RETURNED` | `day-id`, `tab-id` | `day-id`, `tab-id` |
 | `GET_PANEL` | `PANEL_RETURNED` | `panel-id` | `panel` |
 | `UPDATE_PANEL` | `PANEL_UPDATED` | `panel-id`, `base-revision`, `proposed-panel` | `update-result`, `panel` |
 | `HOST_PANEL` | `HOSTING_RETURNED` | `position-id`, `panel-id` | `position-id`, `panel-id`, `unhosted-position-id` |
@@ -12,6 +13,8 @@ Core and Mem communicate with Mobile Stacks.
 
 `GET_DAY_LAYOUT` returns the selected day's tabs, rows, positions, and known
 panel ids. Core keeps an active copy for reduction and rendering.
+
+`SELECT_TAB` changes the selected tab in the canonical day record.
 
 `HOST_PANEL` changes Mem's canonical hosting record. If the panel already
 appears elsewhere in the same tab, Mem unhosts that earlier position and

@@ -2,6 +2,9 @@
 
 **Conceptual path:** day → tab → position → hosted panel identity
 
+A day selects one of its tabs. A tab owns ordered rows; a row defines its
+logical position slots.
+
 | Thing | Current owner | Current role |
 | --- | --- | --- |
 | day | Mem | Canonical workspace; Core retains its active snapshot |

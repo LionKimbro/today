@@ -10,12 +10,14 @@ g = {
     "closing": False,
     "rendering-text": False,
     "rendering-history": False,
+    "selecting-tab": False,
     "text-debounce-ids": {},
     "outgoing-events": None,
     "incoming-commands": None,
 }
 
 widgets = {}
+tab_widgets = {}
 panel_widgets = {}
 position_widgets = {}
 
@@ -39,14 +41,9 @@ def build_today_window():
     widgets["date"] = ttk.Label(content)
     widgets["date"].grid(row=1, column=0, sticky="w", pady=(12, 12))
 
-    widgets["tab"] = ttk.LabelFrame(content, padding=12)
-    widgets["tab"].grid(row=2, column=0, sticky="nsew")
-    widgets["tab"].columnconfigure(0, weight=1)
-    widgets["tab"].rowconfigure(0, weight=1)
-
-    widgets["workspace"] = ttk.Frame(widgets["tab"])
-    widgets["workspace"].grid(row=0, column=0, sticky="nsew")
-    widgets["workspace"].columnconfigure(0, weight=1)
+    widgets["tabs"] = ttk.Notebook(content)
+    widgets["tabs"].grid(row=2, column=0, sticky="nsew")
+    widgets["tabs"].bind("<<NotebookTabChanged>>", handle_when_user_selects_tab)
 
 
 def handle_when_text_widget_changes(event, panel_id):
@@ -76,6 +73,16 @@ def handle_when_user_selects_panel_for_empty_position(position_id):
 def handle_when_user_clicks_unhost_panel_button(position_id):
     send_text_debounce_if_one_is_waiting()
     g["outgoing-events"].put({"type": "UNHOST_PANEL", "position-id": position_id})
+
+
+def handle_when_user_selects_tab(event):
+    if g["selecting-tab"]:
+        return
+    page = event.widget.select()
+    for tab_id, tab in tab_widgets.items():
+        if str(tab["page"]) == page:
+            g["outgoing-events"].put({"type": "SELECT_TAB", "tab-id": tab_id})
+            return
 
 
 def handle_when_user_moves_history_cursor(value, panel_id):
@@ -131,8 +138,7 @@ def enqueue_core_command_and_wake_tk(command):
 def realize_core_command(command):
     if command["type"] == "RENDER_TODAY":
         widgets["date"].configure(text=command["today-id"])
-        widgets["tab"].configure(text=command["tab-label"])
-        build_tab_workspace(command)
+        build_today_tabs(command)
         return
 
     if command["type"] == "RENDER_POSITION":
@@ -152,30 +158,61 @@ def realize_core_command(command):
         return
 
     if command["type"] == "SET_PANEL_LABEL":
-        panel_widgets[command["panel-id"]]["label"].configure(text=command["panel-label"])
+        for panel in panel_widgets[command["panel-id"]]:
+            panel["label"].configure(text=command["panel-label"])
+        return
+
+    if command["type"] == "SET_SELECTED_TAB":
+        select_tab(command["tab-id"])
         return
 
     if command["type"] == "SHUTDOWN_COMPLETE":
         g["root"].destroy()
 
 
-def build_tab_workspace(command):
-    for child in widgets["workspace"].winfo_children():
+def build_today_tabs(command):
+    for child in widgets["tabs"].winfo_children():
         child.destroy()
+    tab_widgets.clear()
     panel_widgets.clear()
     position_widgets.clear()
 
+    for tab in command["tabs"]:
+        page = ttk.Frame(widgets["tabs"], padding=12)
+        widgets["tabs"].add(page, text=tab["tab-label"])
+        tab_widgets[tab["tab-id"]] = {"page": page}
+        build_tab_workspace(tab, page)
+
+    select_tab(command["selected-tab-id"])
+
+
+def select_tab(tab_id):
+    g["selecting-tab"] = True
+    widgets["tabs"].select(tab_widgets[tab_id]["page"])
+    g["root"].after_idle(handle_after_selecting_tab)
+
+
+def handle_after_selecting_tab():
+    g["selecting-tab"] = False
+
+
+def build_tab_workspace(command, workspace):
+    workspace.columnconfigure(0, weight=1)
     for row_number, row in enumerate(command["rows"]):
-        row_frame = ttk.Frame(widgets["workspace"])
+        row_frame = ttk.Frame(workspace)
         row_frame.grid(row=row_number, column=0, sticky="nsew", pady=(0, 12))
         row_frame.rowconfigure(0, weight=1)
-        widgets["workspace"].rowconfigure(row_number, weight=1)
+        workspace.rowconfigure(row_number, weight=1)
 
         for column_number, position in enumerate(row["positions"]):
             row_frame.columnconfigure(column_number, weight=1)
             host = ttk.Frame(row_frame, relief="solid", borderwidth=1, padding=12)
             host.grid(row=0, column=column_number, sticky="nsew", padx=(0, 12))
-            position_widgets[position["position-id"]] = {"host": host, "panel-id": None}
+            position_widgets[position["position-id"]] = {
+                "host": host,
+                "panel-id": None,
+                "panel-widgets": None,
+            }
             if position["panel-id"] is None:
                 render_empty_position(position)
             else:
@@ -185,10 +222,13 @@ def build_tab_workspace(command):
 def clear_position_host(position_id):
     position = position_widgets[position_id]
     if position["panel-id"] is not None:
-        panel_widgets.pop(position["panel-id"], None)
+        panel_widgets[position["panel-id"]].remove(position["panel-widgets"])
+        if not panel_widgets[position["panel-id"]]:
+            panel_widgets.pop(position["panel-id"])
     for child in position["host"].winfo_children():
         child.destroy()
     position["panel-id"] = None
+    position["panel-widgets"] = None
 
 
 def render_empty_position(command):
@@ -255,12 +295,14 @@ def render_hosted_panel(command):
     text.insert("1.0", command["panel-text"])
     text.edit_modified(False)
     g["root"].after_idle(handle_after_rendering_whiteboard_text)
-    panel_widgets[command["panel-id"]] = {
+    panel = {
         "label": label,
         "text": text,
         "history-slider": history_slider,
         "history-status": history_status,
     }
+    position["panel-widgets"] = panel
+    panel_widgets.setdefault(command["panel-id"], []).append(panel)
     render_whiteboard_history_controls(command)
 
 
@@ -269,21 +311,21 @@ def handle_after_rendering_whiteboard_text():
 
 
 def render_whiteboard_view(command):
-    panel = panel_widgets[command["panel-id"]]
     g["rendering-text"] = True
-    panel["text"].delete("1.0", "end")
-    panel["text"].insert("1.0", command["panel-text"])
-    panel["text"].edit_modified(False)
+    for panel in panel_widgets[command["panel-id"]]:
+        panel["text"].delete("1.0", "end")
+        panel["text"].insert("1.0", command["panel-text"])
+        panel["text"].edit_modified(False)
     g["root"].after_idle(handle_after_rendering_whiteboard_text)
     render_whiteboard_history_controls(command)
 
 
 def render_whiteboard_history_controls(command):
-    panel = panel_widgets[command["panel-id"]]
     g["rendering-history"] = True
-    panel["history-slider"].configure(to=command["history-size"])
-    panel["history-slider"].set(command["history-cursor"])
-    panel["history-status"].configure(text=command["history-status"])
+    for panel in panel_widgets[command["panel-id"]]:
+        panel["history-slider"].configure(to=command["history-size"])
+        panel["history-slider"].set(command["history-cursor"])
+        panel["history-status"].configure(text=command["history-status"])
     g["rendering-history"] = False
 
 

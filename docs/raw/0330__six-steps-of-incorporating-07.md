@@ -18,7 +18,7 @@ independently host and retain panels.
 
 ## 7D — Tabs, rows, and panes
 
-Introduce the real layout grouping and tab selection semantics.
+Introduce the real layout grouping and canonical tab-selection semantics.
 
 ## 7E — Resize
 
