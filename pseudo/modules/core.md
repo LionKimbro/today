@@ -109,3 +109,9 @@ PSEUDOCODE:
   TEXT_DEBOUNCE may emit UPDATE_PANEL. Mem acceptance clears the dirty state.
 
 
+  == Stage 6 Whiteboard history ==
+
+  HISTORY_CURSOR_CHANGED changes only the viewed version.
+  First TEXT_CHANGED away from HEAD snapshots HEAD, promotes the edited viewed
+  text to HEAD, and returns the cursor to HEAD.
+

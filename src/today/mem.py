@@ -17,6 +17,7 @@ def initialize_mem_store():
         "type": "WHITEBOARD",
         "label": "Whiteboard A",
         "text": "",
+        "history": [],
         "revision": 1,
     }
     panels["whiteboard-b"] = {
@@ -24,6 +25,7 @@ def initialize_mem_store():
         "type": "WHITEBOARD",
         "label": "Whiteboard B",
         "text": "",
+        "history": [],
         "revision": 1,
     }
 

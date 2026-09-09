@@ -1,7 +1,7 @@
 """The Core machine: reducer state, effects, and returned Mobile Stacks."""
 
 from copy import deepcopy
-from datetime import date
+from datetime import date, datetime
 
 from . import machine, mobile_stacks
 
@@ -30,6 +30,7 @@ def install_panel_snapshot(panel):
     snapshot["awaiting"] = None
     snapshot["edit-generation"] = 0
     snapshot["save-generation"] = None
+    snapshot["history-cursor"] = 0
     visible_panels[panel["id"]] = snapshot
 
 
@@ -37,7 +38,7 @@ def get_canonical_panel_fields(panel):
     return {
         key: value
         for key, value in panel.items()
-        if key not in {"dirty", "awaiting", "edit-generation", "save-generation"}
+        if key not in {"dirty", "awaiting", "edit-generation", "save-generation", "history-cursor"}
     }
 
 
@@ -52,6 +53,35 @@ def prepare_whiteboard_update(panel_id):
         "proposed-panel": get_canonical_panel_fields(panel),
         "save-generation": panel["save-generation"],
     }
+
+
+def get_whiteboard_view(panel):
+    cursor = panel["history-cursor"]
+    if cursor == 0:
+        return {
+            "panel-text": panel["text"],
+            "history-cursor": 0,
+            "history-size": len(panel["history"]),
+            "history-status": "Current working version",
+        }
+
+    snapshot = panel["history"][cursor - 1]
+    return {
+        "panel-text": snapshot["text"],
+        "history-cursor": cursor,
+        "history-size": len(panel["history"]),
+        "history-status": snapshot["timestamp"],
+    }
+
+
+def make_whiteboard_snapshot(panel):
+    panel["history"].insert(
+        0,
+        {
+            "text": panel["text"],
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        },
+    )
 
 
 def reduce_event(event):
@@ -98,6 +128,14 @@ def reduce_event(event):
         panel = visible_panels[event["panel-id"]]
         if panel["type"] != "WHITEBOARD":
             return []
+        if panel["history-cursor"] != 0:
+            make_whiteboard_snapshot(panel)
+            panel["history-cursor"] = 0
+            panel["text"] = event["text"]
+            panel["dirty"] = True
+            panel["awaiting"] = "TEXT_DEBOUNCE"
+            panel["edit-generation"] += 1
+            return [{"type": "SET_WHITEBOARD_HISTORY_CURSOR", "panel-id": event["panel-id"]}]
         panel["text"] = event["text"]
         panel["dirty"] = True
         panel["awaiting"] = "TEXT_DEBOUNCE"
@@ -112,6 +150,22 @@ def reduce_event(event):
             or panel["save-generation"] is not None
         ):
             return []
+        return [prepare_whiteboard_update(event["panel-id"])]
+
+    if event["type"] == "HISTORY_CURSOR_CHANGED":
+        panel = visible_panels[event["panel-id"]]
+        cursor = event["history-cursor"]
+        if cursor < 0 or cursor > len(panel["history"]):
+            return []
+        panel["history-cursor"] = cursor
+        return [{"type": "RENDER_WHITEBOARD_VIEW", "panel-id": event["panel-id"]}]
+
+    if event["type"] == "SNAPSHOT":
+        panel = visible_panels[event["panel-id"]]
+        make_whiteboard_snapshot(panel)
+        panel["dirty"] = True
+        panel["awaiting"] = "MEM_UPDATE"
+        panel["edit-generation"] += 1
         return [prepare_whiteboard_update(event["panel-id"])]
 
     if event["type"] == "PANEL_UPDATED":
@@ -129,7 +183,7 @@ def reduce_event(event):
             return [prepare_whiteboard_update(event["panel-id"])]
         install_panel_snapshot(accepted_panel)
         print("Core reducer: WHITEBOARD_UPDATED", event["panel-id"], "revision", accepted_panel["revision"])
-        return []
+        return [{"type": "SET_WHITEBOARD_HISTORY_CURSOR", "panel-id": event["panel-id"]}]
 
     if event["type"] == "PANEL_UPDATE_CONFLICT":
         print("Core reducer: PANEL_UPDATE_CONFLICT", event["panel-id"], "revision", event["panel"]["revision"])
@@ -177,7 +231,7 @@ def dispatch_effect(effect):
                 "panel-id": panel["id"],
                 "panel-label": panel["label"],
                 "panel-type": panel["type"],
-                "panel-text": panel["text"],
+                **get_whiteboard_view(panel),
             }
         )
         return
@@ -199,7 +253,29 @@ def dispatch_effect(effect):
                 "panel-id": panel["id"],
                 "panel-label": panel["label"],
                 "panel-type": panel["type"],
-                "panel-text": panel["text"],
+                **get_whiteboard_view(panel),
+            }
+        )
+        return
+
+    if effect["type"] == "RENDER_WHITEBOARD_VIEW":
+        panel = visible_panels[effect["panel-id"]]
+        g["send-tk-command"](
+            {
+                "type": "RENDER_WHITEBOARD_VIEW",
+                "panel-id": panel["id"],
+                **get_whiteboard_view(panel),
+            }
+        )
+        return
+
+    if effect["type"] == "SET_WHITEBOARD_HISTORY_CURSOR":
+        panel = visible_panels[effect["panel-id"]]
+        g["send-tk-command"](
+            {
+                "type": "SET_WHITEBOARD_HISTORY_CURSOR",
+                "panel-id": panel["id"],
+                **get_whiteboard_view(panel),
             }
         )
         return

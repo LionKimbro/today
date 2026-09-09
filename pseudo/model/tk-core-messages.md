@@ -6,10 +6,14 @@
 | Tk → Core | `HOST_PANEL`, `position-id`, `panel-id` | Request that a position host an existing panel. |
 | Tk → Core | `TEXT_CHANGED`, `panel-id`, `text` | Replace Core's working text snapshot. |
 | Tk → Core | `TEXT_DEBOUNCE`, `panel-id` | Text input rested; Core may flush it. |
+| Tk → Core | `HISTORY_CURSOR_CHANGED`, `panel-id`, `history-cursor` | View HEAD or a snapshot. |
+| Tk → Core | `SNAPSHOT`, `panel-id` | Preserve the current HEAD. |
 | Tk → Core | `SHUTDOWN` | Stop Core cleanly. |
 | Core → Tk | `RENDER_TODAY`, visible world fields | Reconcile the initial/current structure. |
 | Core → Tk | `SET_PANEL_LABEL`, `panel-id`, `panel-label` | Update one panel's visible label. |
 | Core → Tk | `RENDER_HOSTED_PANEL`, `position-id`, panel fields | Update one position's hosted panel. |
+| Core → Tk | `RENDER_WHITEBOARD_VIEW`, panel view fields | Replace the editor with the selected version. |
+| Core → Tk | `SET_WHITEBOARD_HISTORY_CURSOR`, history fields | Update slider and status only. |
 | Core → Tk | `SHUTDOWN_COMPLETE` | Tk may close. |
 
 `<<CoreMailAvailable>>` carries no application data: drain the Tk inbox.

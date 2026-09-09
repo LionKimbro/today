@@ -24,6 +24,7 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 | `type` | Panel kind: currently `WHITEBOARD` |
 | `label` | Visible label |
 | `text` | Whiteboard contents |
+| `history` | Whiteboard snapshots |
 | `revision` | Canonical update revision |
 
 ## Hosting

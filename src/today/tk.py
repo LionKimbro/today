@@ -9,6 +9,7 @@ g = {
     "root": None,
     "closing": False,
     "rendering-text": False,
+    "rendering-history": False,
     "active-panel-id": None,
     "text-debounce-id": None,
     "text-debounce-panel-id": None,
@@ -60,11 +61,22 @@ def build_today_window():
         lambda event: handle_when_user_selects_hosted_panel("position-1"),
     )
     widgets["panel-label"] = ttk.Label(widgets["panel"])
-    widgets["panel-label"].grid(row=1, column=0)
+    widgets["panel-label"].grid(row=1, column=0, sticky="w")
+    widgets["snapshot-button"] = ttk.Button(
+        widgets["panel"], text="Snapshot", command=handle_when_user_clicks_snapshot_button
+    )
+    widgets["snapshot-button"].grid(row=1, column=1, sticky="e")
     widgets["whiteboard-text"] = tkinter.Text(widgets["panel"], height=10, wrap="word")
     widgets["whiteboard-text"].grid(row=2, column=0, sticky="nsew", pady=(16, 0))
     widgets["whiteboard-text"].bind("<<Modified>>", handle_when_text_widget_changes)
     widgets["whiteboard-text"].edit_modified(False)
+    widgets["history-slider"] = tkinter.Scale(
+        widgets["panel"], from_=0, to=0, orient="vertical", showvalue=False,
+        command=handle_when_user_moves_history_cursor,
+    )
+    widgets["history-slider"].grid(row=2, column=1, sticky="ns", padx=(12, 0))
+    widgets["history-status"] = ttk.Label(widgets["panel"], text="Current working version")
+    widgets["history-status"].grid(row=3, column=0, sticky="w", pady=(8, 0))
 
 
 def handle_when_user_selects_hosted_panel(position_id):
@@ -87,6 +99,22 @@ def handle_when_text_widget_changes(event):
         }
     )
     schedule_text_debounce_for_active_panel()
+
+
+def handle_when_user_moves_history_cursor(value):
+    if g["rendering-history"] or g["active-panel-id"] is None:
+        return
+    g["outgoing-events"].put(
+        {
+            "type": "HISTORY_CURSOR_CHANGED",
+            "panel-id": g["active-panel-id"],
+            "history-cursor": int(float(value)),
+        }
+    )
+
+
+def handle_when_user_clicks_snapshot_button():
+    g["outgoing-events"].put({"type": "SNAPSHOT", "panel-id": g["active-panel-id"]})
 
 
 def schedule_text_debounce_for_active_panel():
@@ -143,6 +171,14 @@ def realize_core_command(command):
         position_widgets[command["position-id"]]["choice"].set(command["panel-id"])
         return
 
+    if command["type"] == "RENDER_WHITEBOARD_VIEW":
+        render_whiteboard_view(command)
+        return
+
+    if command["type"] == "SET_WHITEBOARD_HISTORY_CURSOR":
+        render_whiteboard_history_controls(command)
+        return
+
     if command["type"] == "SET_PANEL_LABEL":
         panel_widgets[command["panel-id"]]["label"].configure(text=command["panel-label"])
         return
@@ -159,11 +195,29 @@ def render_hosted_panel(command):
     widgets["whiteboard-text"].insert("1.0", command["panel-text"])
     widgets["whiteboard-text"].edit_modified(False)
     g["root"].after_idle(handle_after_rendering_whiteboard_text)
+    render_whiteboard_history_controls(command)
     panel_widgets[command["panel-id"]] = {"label": widgets["panel-label"]}
 
 
 def handle_after_rendering_whiteboard_text():
     g["rendering-text"] = False
+
+
+def render_whiteboard_view(command):
+    g["rendering-text"] = True
+    widgets["whiteboard-text"].delete("1.0", "end")
+    widgets["whiteboard-text"].insert("1.0", command["panel-text"])
+    widgets["whiteboard-text"].edit_modified(False)
+    g["root"].after_idle(handle_after_rendering_whiteboard_text)
+    render_whiteboard_history_controls(command)
+
+
+def render_whiteboard_history_controls(command):
+    g["rendering-history"] = True
+    widgets["history-slider"].configure(to=command["history-size"])
+    widgets["history-slider"].set(command["history-cursor"])
+    widgets["history-status"].configure(text=command["history-status"])
+    g["rendering-history"] = False
 
 
 def handle_when_core_mail_arrives(event):
