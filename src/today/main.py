@@ -18,9 +18,11 @@ def main():
         "current-stack": None,
         "handlers": {
             "PANEL_RETURNED": core.handle_when_core_receives_panel_return,
+            "PANEL_CREATED_RETURNED": core.handle_when_core_receives_created_panel,
             "PANEL_UPDATED": core.handle_when_core_receives_panel_update,
             "DAY_LAYOUT_RETURNED": core.handle_when_core_receives_day_layout,
             "HOSTING_RETURNED": core.handle_when_core_receives_hosting_update,
+            "PANEL_DELETED_RETURNED": core.handle_when_core_receives_deleted_panel,
             "SELECTED_TAB_RETURNED": core.handle_when_core_receives_selected_tab,
             "ROW_LAYOUT_RETURNED": core.handle_when_core_receives_row_layout,
             "TAB_LAYOUT_RETURNED": core.handle_when_core_receives_tab_layout,
@@ -37,6 +39,7 @@ def main():
         "handlers": {
             "DAY_BUNDLE_RETURNED": mem.handle_when_mem_receives_day_bundle,
             "GET_PANEL": mem.handle_when_mem_receives_get_panel,
+            "CREATE_PANEL": mem.handle_when_mem_receives_create_panel,
             "SELECT_TAB": mem.handle_when_mem_receives_select_tab,
             "SET_ROW_HEIGHT": mem.handle_when_mem_receives_set_row_height,
             "SET_SASH_PROPORTIONS": mem.handle_when_mem_receives_set_sash_proportions,
@@ -51,6 +54,7 @@ def main():
             "UPDATE_PANEL": mem.handle_when_mem_receives_update_panel,
             "HOST_PANEL": mem.handle_when_mem_receives_host_panel,
             "UNHOST_PANEL": mem.handle_when_mem_receives_unhost_panel,
+            "DELETE_PANEL": mem.handle_when_mem_receives_delete_panel,
         },
         "running": False,
     }

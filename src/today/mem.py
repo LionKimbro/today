@@ -165,6 +165,28 @@ def handle_when_mem_receives_get_panel():
     mobile_stacks.set_register(("panel", deepcopy(panels[panel_id])))
 
 
+def handle_when_mem_receives_create_panel():
+    day_id = mobile_stacks.get_register("day-id")
+    panel_type = mobile_stacks.get_register("panel-type")
+    if panel_type not in {"WHITEBOARD", "TODO", "JOURNAL"}:
+        raise RuntimeError(f"cannot create panel type {panel_type}")
+    panel_id = f"{panel_type.lower()}-{uuid4().hex}"
+    panel = {
+        "id": panel_id,
+        "day-id": day_id,
+        "type": panel_type,
+        "label": {"WHITEBOARD": "Whiteboard", "TODO": "To-Do", "JOURNAL": "Journal"}[panel_type],
+        "text": "",
+        "revision": 1,
+    }
+    if panel_type == "WHITEBOARD":
+        panel["history"] = []
+    panels[panel_id] = panel
+    mark_day_for_disk_save(day_id)
+    print("Mem CREATE_PANEL:", panel_id, "for", day_id)
+    mobile_stacks.set_register(("panel", deepcopy(panel)))
+
+
 def handle_when_mem_receives_select_tab():
     day_id = mobile_stacks.get_register("day-id")
     tab_id = mobile_stacks.get_register("tab-id")
@@ -400,6 +422,29 @@ def handle_when_mem_receives_unhost_panel():
     mobile_stacks.set_register(("position-id", position_id))
     mobile_stacks.set_register(("panel-id", None))
     mobile_stacks.set_register(("unhosted-position-id", None))
+
+
+def handle_when_mem_receives_delete_panel():
+    day_id = mobile_stacks.get_register("day-id")
+    panel_id = mobile_stacks.get_register("panel-id")
+    if panels[panel_id]["day-id"] != day_id:
+        raise RuntimeError(f"panel {panel_id} does not belong to day {day_id}")
+    if days[day_id]["orientation-position"]["panel-id"] == panel_id:
+        raise RuntimeError("cannot delete the fixed Orientation panel")
+    position_ids = []
+    for tab_id in days[day_id]["tab-ids"]:
+        for row_id in tabs[tab_id]["row-ids"]:
+            for column in range(1, rows[row_id]["column-count"] + 1):
+                position_id = get_position_id(row_id, column)
+                if positions[position_id]["panel-id"] == panel_id:
+                    position_ids.append(position_id)
+    for position_id in position_ids:
+        positions[position_id]["panel-id"] = None
+    panels.pop(panel_id)
+    mark_day_for_disk_save(day_id)
+    print("Mem DELETE_PANEL:", panel_id, "from", len(position_ids), "positions")
+    mobile_stacks.set_register(("panel-id", panel_id))
+    mobile_stacks.set_register(("position-ids", position_ids))
 
 
 def flush_day_writes_when_due(force=False):

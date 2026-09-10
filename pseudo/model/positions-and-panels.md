@@ -39,7 +39,7 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 | --- | --- |
 | `id` | Panel identity |
 | `day-id` | Owning day identity |
-| `type` | Panel kind: `WHITEBOARD` or top-slot-only `ORIENTATION` |
+| `type` | `WHITEBOARD`, `TODO`, `JOURNAL`, or top-slot-only `ORIENTATION` |
 | `label` | Visible label |
 | `text` | Panel text |
 | `history` | Whiteboard snapshots only |
@@ -58,6 +58,13 @@ tab's position on its owning day.
 The day-owned `orientation-position` is outside this tab geometry. It hosts
 one fixed `ORIENTATION` panel for now; it has text and revisions, but no
 history.
+
+An empty ordinary position offers existing eligible panels plus creation of a
+Whiteboard, To-Do, or Journal. New To-Do and Journal panels are plain editable
+text panels until their real instruments are defined.
+
+Deleting a panel is distinct from unhosting: it removes the day-owned record
+and every ordinary hosting reference to it.
 
 Core's snapshot may additionally hold `dirty`, `awaiting`, `edit-generation`,
 and `save-generation`. Those are working facts, never canonical Mem fields.

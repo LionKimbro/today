@@ -17,6 +17,8 @@ Core and Mem communicate with Mobile Stacks.
 | `RENAME_TAB` | `TAB_RENAMED_RETURNED` | `tab-id`, `label` | `tab` |
 | `DELETE_TAB` | `TAB_DELETED_RETURNED` | `day-id`, `tab-id` | `day`, `tab-id`, `deleted` |
 | `GET_PANEL` | `PANEL_RETURNED` | `day-id`, `panel-id` | `panel` |
+| `CREATE_PANEL` | `PANEL_CREATED_RETURNED` | `day-id`, `position-id`, `panel-type` | `panel` |
+| `DELETE_PANEL` | `PANEL_DELETED_RETURNED` | `day-id`, `panel-id` | `panel-id`, `position-ids` |
 | `UPDATE_PANEL` | `PANEL_UPDATED` | `day-id`, `panel-id`, `base-revision`, `proposed-panel` | `update-result`, `panel` |
 | `HOST_PANEL` | `HOSTING_RETURNED` | `day-id`, `position-id`, `panel-id` | `position-id`, `panel-id`, `unhosted-position-id` |
 | `UNHOST_PANEL` | `HOSTING_RETURNED` | `day-id`, `position-id` | `position-id`, `panel-id = null` |
@@ -52,6 +54,12 @@ current canonical panel with `update-result = "conflict"`.
 
 Panel operations carry `day-id`. Mem rejects a panel or position that does not
 belong to that day.
+
+`CREATE_PANEL` mints an unhosted day-owned panel. Core then requests its
+ordinary `HOST_PANEL` operation for the originating empty position.
+
+`DELETE_PANEL` removes the panel record and unhosts all of its ordinary
+positions in its owning day. The fixed Orientation panel cannot be deleted.
 
 For a day load, the stack travels `Core → Disk → Mem → Core`: Disk returns a
 JSON bundle, then Mem installs it or seeds an absent day. Changed Mem days

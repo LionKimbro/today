@@ -2,6 +2,7 @@
 
 import tkinter
 from queue import Empty
+from time import monotonic
 from tkinter import ttk
 
 
@@ -33,6 +34,7 @@ g = {
     "text-debounce-ids": {},
     "scroll-save-ids": {},
     "orientation-panel-id": None,
+    "delete-confirmation-suppressed-until": 0.0,
     "outgoing-events": None,
     "incoming-commands": None,
 }
@@ -187,6 +189,17 @@ def handle_when_user_selects_panel_for_empty_position(position_id):
     )
 
 
+def handle_when_user_creates_panel_for_empty_position(position_id, panel_type):
+    send_text_debounce_if_one_is_waiting()
+    g["outgoing-events"].put(
+        {
+            "type": "CREATE_AND_HOST_PANEL",
+            "position-id": position_id,
+            "panel-type": panel_type,
+        }
+    )
+
+
 def make_day_navigation_button(parent, text, command):
     tkinter.Button(
         parent,
@@ -224,6 +237,53 @@ def handle_when_user_clicks_today_button():
 def handle_when_user_clicks_unhost_panel_button(position_id):
     send_text_debounce_if_one_is_waiting()
     g["outgoing-events"].put({"type": "UNHOST_PANEL", "position-id": position_id})
+
+
+def handle_when_user_control_clicks_delete_panel(event, panel_id):
+    if monotonic() < g["delete-confirmation-suppressed-until"]:
+        send_delete_panel_event(panel_id)
+        return "break"
+
+    dialog = tkinter.Toplevel(g["root"])
+    dialog.title("Delete panel?")
+    dialog.configure(background=COLORS["panel"], padx=18, pady=14)
+    dialog.transient(g["root"])
+    tkinter.Label(
+        dialog,
+        text="Delete this panel everywhere in this day?",
+        background=COLORS["panel"],
+        foreground=COLORS["primary-text"],
+    ).pack(anchor="w")
+    suppress_confirmation = tkinter.BooleanVar(value=False)
+    tkinter.Checkbutton(
+        dialog,
+        text="Don't ask again for the next 30 seconds",
+        variable=suppress_confirmation,
+        background=COLORS["panel"],
+        foreground=COLORS["secondary-text"],
+        activebackground=COLORS["panel"],
+        activeforeground=COLORS["primary-text"],
+        selectcolor=COLORS["control"],
+    ).pack(anchor="w", pady=(10, 14))
+    buttons = tkinter.Frame(dialog, background=COLORS["panel"])
+    buttons.pack(anchor="e")
+    tkinter.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="left", padx=(0, 8))
+
+    def confirm_panel_deletion():
+        if suppress_confirmation.get():
+            g["delete-confirmation-suppressed-until"] = monotonic() + 30.0
+        dialog.destroy()
+        send_delete_panel_event(panel_id)
+
+    tkinter.Button(buttons, text="Delete", command=confirm_panel_deletion).pack(side="left")
+    dialog.grab_set()
+    return "break"
+
+
+def send_delete_panel_event(panel_id):
+    if panel_id in g["text-debounce-ids"]:
+        g["root"].after_cancel(g["text-debounce-ids"].pop(panel_id))
+    g["outgoing-events"].put({"type": "DELETE_PANEL", "panel-id": panel_id})
 
 
 def handle_when_user_selects_tab(event):
@@ -524,6 +584,10 @@ def realize_core_command(command):
 
     if command["type"] == "SET_ORIENTATION_TEXT":
         render_orientation_panel(command)
+        return
+
+    if command["type"] == "SET_PANEL_TEXT":
+        render_panel_text(command)
         return
 
     if command["type"] == "SET_WHITEBOARD_HISTORY_CURSOR":
@@ -874,6 +938,24 @@ def render_empty_position(command):
             position_id
         ),
     )
+    creation_buttons = tkinter.Frame(host, background=COLORS["panel"])
+    creation_buttons.grid(row=1, column=0, sticky="w", pady=(12, 0))
+    for panel_type, label in (("WHITEBOARD", "+ Whiteboard"), ("TODO", "+ To-Do"), ("JOURNAL", "+ Journal")):
+        tkinter.Button(
+            creation_buttons,
+            text=label,
+            background=COLORS["control"],
+            foreground=COLORS["secondary-text"],
+            activebackground=COLORS["divider"],
+            activeforeground=COLORS["primary-text"],
+            relief="flat",
+            borderwidth=0,
+            padx=8,
+            pady=4,
+            command=lambda panel_type=panel_type, position_id=command["position-id"]: handle_when_user_creates_panel_for_empty_position(
+                position_id, panel_type
+            ),
+        ).pack(side="left", padx=(0, 6))
     position["choice"] = choice
 
 
@@ -908,23 +990,13 @@ def render_hosted_panel(command):
         ),
     )
     unhost_button.grid(row=0, column=2, sticky="e")
-    controls = tkinter.Frame(host, background=COLORS["panel"])
-    controls.grid(row=1, column=2, sticky="ns", padx=(12, 0), pady=(14, 0))
-    controls.rowconfigure(1, weight=1)
-    snapshot_button = tkinter.Button(
-        controls,
-        text="Snapshot",
-        background=COLORS["accent-blue"],
-        foreground=COLORS["primary-text"],
-        activebackground="#347FD8",
-        activeforeground=COLORS["primary-text"],
-        relief="flat",
-        borderwidth=0,
-        padx=14,
-        pady=6,
-        command=lambda panel_id=command["panel-id"]: handle_when_user_clicks_snapshot_button(panel_id),
+    unhost_button.bind(
+        "<Control-ButtonRelease-1>",
+        lambda event, panel_id=command["panel-id"]: handle_when_user_control_clicks_delete_panel(
+            event, panel_id
+        ),
     )
-    snapshot_button.grid(row=0, column=0, sticky="ew")
+    is_whiteboard = command["panel-type"] == "WHITEBOARD"
     text = tkinter.Text(
         host,
         height=10,
@@ -940,43 +1012,64 @@ def render_hosted_panel(command):
         highlightbackground=COLORS["border"],
         highlightcolor=COLORS["accent-blue"],
     )
-    text.grid(row=1, column=1, sticky="nsew", pady=(14, 0))
+    text.grid(
+        row=1,
+        column=1,
+        columnspan=1 if is_whiteboard else 2,
+        sticky="nsew",
+        pady=(14, 0),
+    )
     text.bind(
         "<<Modified>>",
         lambda event, panel_id=command["panel-id"]: handle_when_text_widget_changes(event, panel_id),
     )
-    history_slider = tkinter.Scale(
-        controls,
-        from_=0,
-        to=0,
-        orient="vertical",
-        showvalue=False,
-        command=lambda value, panel_id=command["panel-id"]: handle_when_user_moves_history_cursor(
-            value, panel_id
-        ),
-        background=COLORS["panel"],
-        foreground=COLORS["secondary-text"],
-        troughcolor=COLORS["control"],
-        activebackground=COLORS["accent-blue"],
-        highlightthickness=0,
-        borderwidth=0,
-        sliderrelief="flat",
-    )
-    history_slider.grid(row=1, column=0, sticky="ns", pady=(10, 0))
+    panel = {"label": label, "text": text}
+    if is_whiteboard:
+        controls = tkinter.Frame(host, background=COLORS["panel"])
+        controls.grid(row=1, column=2, sticky="ns", padx=(12, 0), pady=(14, 0))
+        controls.rowconfigure(1, weight=1)
+        tkinter.Button(
+            controls,
+            text="Snapshot",
+            background=COLORS["accent-blue"],
+            foreground=COLORS["primary-text"],
+            activebackground="#347FD8",
+            activeforeground=COLORS["primary-text"],
+            relief="flat",
+            borderwidth=0,
+            padx=14,
+            pady=6,
+            command=lambda panel_id=command["panel-id"]: handle_when_user_clicks_snapshot_button(panel_id),
+        ).grid(row=0, column=0, sticky="ew")
+        history_slider = tkinter.Scale(
+            controls,
+            from_=0,
+            to=0,
+            orient="vertical",
+            showvalue=False,
+            command=lambda value, panel_id=command["panel-id"]: handle_when_user_moves_history_cursor(
+                value, panel_id
+            ),
+            background=COLORS["panel"],
+            foreground=COLORS["secondary-text"],
+            troughcolor=COLORS["control"],
+            activebackground=COLORS["accent-blue"],
+            highlightthickness=0,
+            borderwidth=0,
+            sliderrelief="flat",
+        )
+        history_slider.grid(row=1, column=0, sticky="ns", pady=(10, 0))
+        panel["history-slider"] = history_slider
+        panel["history-status"] = command["history-status"]
 
     g["rendering-text"] = True
     text.insert("1.0", command["panel-text"])
     text.edit_modified(False)
     g["root"].after_idle(handle_after_rendering_whiteboard_text)
-    panel = {
-        "label": label,
-        "text": text,
-        "history-slider": history_slider,
-        "history-status": command["history-status"],
-    }
     position["panel-widgets"] = panel
     panel_widgets.setdefault(command["panel-id"], []).append(panel)
-    render_whiteboard_history_controls(command)
+    if is_whiteboard:
+        render_whiteboard_history_controls(command)
 
 
 def handle_after_rendering_whiteboard_text():
@@ -991,6 +1084,15 @@ def render_whiteboard_view(command):
         panel["text"].edit_modified(False)
     g["root"].after_idle(handle_after_rendering_whiteboard_text)
     render_whiteboard_history_controls(command)
+
+
+def render_panel_text(command):
+    g["rendering-text"] = True
+    for panel in panel_widgets[command["panel-id"]]:
+        panel["text"].delete("1.0", "end")
+        panel["text"].insert("1.0", command["panel-text"])
+        panel["text"].edit_modified(False)
+    g["root"].after_idle(handle_after_rendering_whiteboard_text)
 
 
 def render_orientation_panel(command):
@@ -1017,7 +1119,8 @@ def update_global_status_from_visible_whiteboard():
     for panels in panel_widgets.values():
         for panel in panels:
             if panel["text"].winfo_ismapped():
-                widgets["status"].configure(text=panel["history-status"])
+                if "history-status" in panel:
+                    widgets["status"].configure(text=panel["history-status"])
                 return
 
 

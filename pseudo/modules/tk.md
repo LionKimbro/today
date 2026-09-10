@@ -29,6 +29,13 @@ panel controls; an unhosted position visibly says it is empty.
 Stage 7C gives an empty position a chooser of eligible existing panels. A
 hosted position offers `Unhost panel`; neither control mutates Tk's model.
 
+An empty position also offers `+ Whiteboard`, `+ To-Do`, and `+ Journal`.
+Each sends `CREATE_AND_HOST_PANEL`; Tk does not mint or host a panel itself.
+
+Normal `x` unhosts. Control-clicking `x` opens a Tk-local delete confirmation;
+its optional 30-second no-prompt window is also Tk-local. Confirmation sends
+only `DELETE_PANEL` to Core.
+
 Stage 7D renders each day tab as a Notebook page. User selection emits
 `SELECT_TAB`; Core's accepted `SET_SELECTED_TAB` selects the page.
 
