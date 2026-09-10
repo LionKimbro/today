@@ -22,3 +22,6 @@ special panel type; Orientation is one such panel, not the slot itself.
 Panels carry `day-id`. A position may host only a panel owned by the same day.
 Core keeps `current-day-id`: the day whose active layout it is reducing and
 rendering.
+
+An unseen day requested by Core is created in Mem with **Tab A**, one row, one
+position, and one day-owned Whiteboard. Disk has no role yet.

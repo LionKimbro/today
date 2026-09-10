@@ -1,7 +1,7 @@
 """The Core machine: reducer state, effects, and returned Mobile Stacks."""
 
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from . import machine, mobile_stacks
 
@@ -14,6 +14,7 @@ g = {
     "known-panel-ids": [],
     "pending-initial-panel-ids": [],
     "selected-tab-id": None,
+    "pending-day-id": None,
 }
 
 tabs = {}
@@ -121,6 +122,21 @@ def get_canonical_panel_fields(panel):
     }
 
 
+def get_day_navigation_effect_when_ready():
+    if g["pending-day-id"] is None:
+        return []
+    if any(panel["dirty"] for panel in visible_panels.values()):
+        return []
+    day_id = g["pending-day-id"]
+    g["pending-day-id"] = None
+    return [{"type": "GET_DAY_LAYOUT", "day-id": day_id}]
+
+
+def request_day_navigation(day_id):
+    g["pending-day-id"] = day_id
+    return get_day_navigation_effect_when_ready()
+
+
 def prepare_whiteboard_update(panel_id):
     panel = visible_panels[panel_id]
     panel["awaiting"] = "MEM_UPDATE"
@@ -178,6 +194,7 @@ def reduce_event(event):
         rows.update(layout["rows"])
         positions.clear()
         positions.update(layout["positions"])
+        visible_panels.clear()
         g["pending-initial-panel-ids"] = sorted(
             {position["panel-id"] for position in positions.values() if position["panel-id"] is not None}
         )
@@ -185,6 +202,19 @@ def reduce_event(event):
             {"type": "GET_PANEL", "panel-id": panel_id}
             for panel_id in g["pending-initial-panel-ids"]
         ]
+
+    if event["type"] == "SELECT_PREVIOUS_DAY":
+        return request_day_navigation(
+            (date.fromisoformat(g["current-day-id"]) - timedelta(days=1)).isoformat()
+        )
+
+    if event["type"] == "SELECT_NEXT_DAY":
+        return request_day_navigation(
+            (date.fromisoformat(g["current-day-id"]) + timedelta(days=1)).isoformat()
+        )
+
+    if event["type"] == "SELECT_TODAY":
+        return request_day_navigation(date.today().isoformat())
 
     if event["type"] == "PANEL_RECEIVED":
         install_panel_snapshot(event["panel"])
@@ -429,7 +459,10 @@ def reduce_event(event):
             return [prepare_whiteboard_update(event["panel-id"])]
         install_panel_snapshot(accepted_panel)
         print("Core reducer: WHITEBOARD_UPDATED", event["panel-id"], "revision", accepted_panel["revision"])
-        return [{"type": "RENDER_WHITEBOARD_VIEW", "panel-id": event["panel-id"]}]
+        return [
+            {"type": "RENDER_WHITEBOARD_VIEW", "panel-id": event["panel-id"]},
+            *get_day_navigation_effect_when_ready(),
+        ]
 
     if event["type"] == "PANEL_UPDATE_CONFLICT":
         print("Core reducer: PANEL_UPDATE_CONFLICT", event["panel-id"], "revision", event["panel"]["revision"])

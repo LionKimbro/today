@@ -97,6 +97,38 @@ def initialize_mem_store():
     }
 
 
+def create_new_day(day_id):
+    tab_id = f"tab-{uuid4().hex}"
+    row_id = f"row-{uuid4().hex}"
+    panel_id = f"whiteboard-{uuid4().hex}"
+    days[day_id] = {"id": day_id, "tab-ids": [tab_id], "selected-tab-id": tab_id}
+    tabs[tab_id] = {
+        "id": tab_id,
+        "day-id": day_id,
+        "label": "Tab A",
+        "row-ids": [row_id],
+        "scroll-position": 0.0,
+    }
+    rows[row_id] = {
+        "id": row_id,
+        "tab-id": tab_id,
+        "column-count": 1,
+        "height": 260,
+        "sash-proportions": [],
+    }
+    positions[get_position_id(row_id, 1)] = {"panel-id": panel_id}
+    panels[panel_id] = {
+        "id": panel_id,
+        "day-id": day_id,
+        "type": "WHITEBOARD",
+        "label": "Whiteboard",
+        "text": "",
+        "history": [],
+        "revision": 1,
+    }
+    print("Mem CREATE_DAY:", day_id)
+
+
 def get_position_id(row_id, column):
     return f"{row_id}/column-{column}"
 
@@ -112,6 +144,8 @@ def get_day_id_for_position(position_id):
 
 def handle_when_mem_receives_get_day_layout():
     day_id = mobile_stacks.get_register("day-id")
+    if day_id not in days:
+        create_new_day(day_id)
     day = days[day_id]
     tab_records = {tab_id: deepcopy(tabs[tab_id]) for tab_id in day["tab-ids"]}
     row_records = {

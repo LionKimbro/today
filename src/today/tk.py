@@ -116,13 +116,17 @@ def build_today_window():
         font=("TkDefaultFont", 18, "bold"),
     )
     widgets["title"].pack(side="left")
+    make_day_navigation_button(top, "<", handle_when_user_clicks_previous_day_button)
     widgets["date"] = tkinter.Label(
         top,
         background=COLORS["top"],
         foreground=COLORS["secondary-text"],
-        padx=12,
+        width=12,
+        anchor="center",
     )
-    widgets["date"].pack(side="left")
+    widgets["date"].pack(side="left", padx=6)
+    make_day_navigation_button(top, "今", handle_when_user_clicks_today_button)
+    make_day_navigation_button(top, ">", handle_when_user_clicks_next_day_button)
 
     widgets["tabs"] = ttk.Notebook(g["root"], style="Page.TNotebook")
     widgets["tabs"].grid(row=1, column=0, sticky="nsew")
@@ -163,6 +167,37 @@ def handle_when_user_selects_panel_for_empty_position(position_id):
     g["outgoing-events"].put(
         {"type": "HOST_PANEL", "position-id": position_id, "panel-id": panel_id}
     )
+
+
+def make_day_navigation_button(parent, text, command):
+    tkinter.Button(
+        parent,
+        text=text,
+        background=COLORS["control"],
+        foreground=COLORS["secondary-text"],
+        activebackground=COLORS["divider"],
+        activeforeground=COLORS["primary-text"],
+        relief="flat",
+        borderwidth=0,
+        padx=7,
+        pady=3,
+        command=command,
+    ).pack(side="left")
+
+
+def handle_when_user_clicks_previous_day_button():
+    send_text_debounce_if_one_is_waiting()
+    g["outgoing-events"].put({"type": "SELECT_PREVIOUS_DAY"})
+
+
+def handle_when_user_clicks_next_day_button():
+    send_text_debounce_if_one_is_waiting()
+    g["outgoing-events"].put({"type": "SELECT_NEXT_DAY"})
+
+
+def handle_when_user_clicks_today_button():
+    send_text_debounce_if_one_is_waiting()
+    g["outgoing-events"].put({"type": "SELECT_TODAY"})
 
 
 def handle_when_user_clicks_unhost_panel_button(position_id):

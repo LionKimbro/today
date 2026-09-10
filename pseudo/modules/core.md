@@ -119,6 +119,15 @@ PSEUDOCODE:
   -> SET_SELECTED_TAB command to Tk
 
 
+  == Day navigation ==
+
+  SELECT_PREVIOUS_DAY / SELECT_NEXT_DAY / SELECT_TODAY
+  -> request GET_DAY_LAYOUT for the target date
+
+  A pending navigation waits for dirty whiteboards to receive Mem's accepted
+  update. The returned day layout replaces Core's active day snapshot.
+
+
   == Stage 7E geometry ==
 
   SET_ROW_HEIGHT and SET_SASH_PROPORTIONS

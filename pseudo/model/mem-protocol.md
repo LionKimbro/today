@@ -22,7 +22,9 @@ Core and Mem communicate with Mobile Stacks.
 | `UNHOST_PANEL` | `HOSTING_RETURNED` | `day-id`, `position-id` | `position-id`, `panel-id = null` |
 
 `GET_DAY_LAYOUT` returns the selected day's tabs, rows, positions, and known
-panel ids. Core keeps an active copy for reduction and rendering.
+panel ids. For an unseen day, Mem first seeds Tab A with one row, one position,
+and one day-owned Whiteboard. Core keeps an active copy for reduction and
+rendering.
 
 `SELECT_TAB` changes the selected tab in the canonical day record.
 
