@@ -127,6 +127,9 @@ PSEUDOCODE:
   A pending navigation waits for dirty whiteboards to receive Mem's accepted
   update. The returned day layout replaces Core's active day snapshot.
 
+  Disk loading travels Core → Disk → Mem → Core. Core still receives only the
+  ordinary `DAY_LAYOUT_RECEIVED` reducer event.
+
 
   == Stage 7E geometry ==
 

@@ -2,6 +2,9 @@
 
 OWNS: canonical in-memory `days`, `tabs`, `rows`, `positions`, and `panels`.
 
+Mem installs an unseen day's Disk bundle, or seeds that absent day. Canonical
+changes mark the owning day for one coalesced Disk write; Mem flushes on exit.
+
 `GET_PANEL` deep-copies the requested panel into the current stack registers.
 The canonical record stays owned by Mem, including nested mutable data.
 

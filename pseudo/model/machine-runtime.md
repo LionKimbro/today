@@ -2,7 +2,7 @@
 
 | Field | Meaning |
 | --- | --- |
-| `name` | Machine identity: `CORE` or `MEM` |
+| `name` | Machine identity: `CORE`, `MEM`, or `DISK` |
 | `inbox` | One blocking queue |
 | `current-stack` | Stack being handled, else `None` |
 | `handlers` | Entry → machine handler |

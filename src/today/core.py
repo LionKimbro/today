@@ -209,16 +209,7 @@ def reduce_event(event):
         positions.clear()
         positions.update(layout["positions"])
         visible_panels.clear()
-        g["pending-initial-panel-ids"] = sorted(
-            {
-                *(
-                    position["panel-id"]
-                    for position in positions.values()
-                    if position["panel-id"] is not None
-                ),
-                g["orientation-position"]["panel-id"],
-            }
-        )
+        g["pending-initial-panel-ids"] = sorted(g["known-panel-ids"])
         return [
             {"type": "GET_PANEL", "panel-id": panel_id}
             for panel_id in g["pending-initial-panel-ids"]
@@ -505,7 +496,8 @@ def dispatch_effect(effect):
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("day-id", effect["day-id"]))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "DAY_LAYOUT_RETURNED"})
-        mobile_stacks.push_frame({"machine": "MEM", "entry": "GET_DAY_LAYOUT"})
+        mobile_stacks.push_frame({"machine": "MEM", "entry": "DAY_BUNDLE_RETURNED"})
+        mobile_stacks.push_frame({"machine": "DISK", "entry": "LOAD_DAY"})
         machine.route_current_stack()
         return
 

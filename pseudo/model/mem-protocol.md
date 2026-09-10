@@ -52,3 +52,7 @@ current canonical panel with `update-result = "conflict"`.
 
 Panel operations carry `day-id`. Mem rejects a panel or position that does not
 belong to that day.
+
+For a day load, the stack travels `Core → Disk → Mem → Core`: Disk returns a
+JSON bundle, then Mem installs it or seeds an absent day. Changed Mem days
+travel one-way to Disk as `WRITE_DAY` bundles after Mem's quiet-period save.

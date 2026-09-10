@@ -3,12 +3,13 @@
 from queue import Queue
 from threading import Thread
 
-from . import core, machine, mem, tk
+from . import core, disk, machine, mem, tk
 
 
 def main():
     core_inbox = Queue()
     mem_inbox = Queue()
+    disk_inbox = Queue()
     core_to_tk = Queue()
 
     core_runtime = {
@@ -34,7 +35,7 @@ def main():
         "inbox": mem_inbox,
         "current-stack": None,
         "handlers": {
-            "GET_DAY_LAYOUT": mem.handle_when_mem_receives_get_day_layout,
+            "DAY_BUNDLE_RETURNED": mem.handle_when_mem_receives_day_bundle,
             "GET_PANEL": mem.handle_when_mem_receives_get_panel,
             "SELECT_TAB": mem.handle_when_mem_receives_select_tab,
             "SET_ROW_HEIGHT": mem.handle_when_mem_receives_set_row_height,
@@ -53,18 +54,33 @@ def main():
         },
         "running": False,
     }
+    disk_runtime = {
+        "name": "DISK",
+        "inbox": disk_inbox,
+        "current-stack": None,
+        "handlers": {
+            "LOAD_DAY": disk.handle_when_disk_receives_load_day,
+            "WRITE_DAY": disk.handle_when_disk_receives_write_day,
+        },
+        "running": False,
+    }
     machine.install_machine(core_runtime)
     machine.install_machine(mem_runtime)
+    machine.install_machine(disk_runtime)
 
     core.g["send-tk-command"] = tk.enqueue_core_command_and_wake_tk
     tk.g["outgoing-events"] = core_inbox
     tk.g["incoming-commands"] = core_to_tk
 
     tk.build_today_window()
+    disk_thread = Thread(target=disk.run_disk_machine, name="Today Disk")
     mem_thread = Thread(target=mem.run_mem_machine, name="Today Mem")
     core_thread = Thread(target=core.run_reducer_core, name="Today Reducer Core")
+    disk_thread.start()
     mem_thread.start()
     core_thread.start()
     tk.run_tk_machine()
     core_thread.join()
     mem_thread.join()
+    disk_inbox.put(None)
+    disk_thread.join()

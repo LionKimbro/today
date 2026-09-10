@@ -1,7 +1,8 @@
 """The Mem machine: the small canonical in-memory store."""
 
 from copy import deepcopy
-from datetime import date
+from queue import Empty
+from time import monotonic
 from uuid import uuid4
 
 from . import machine, mobile_stacks
@@ -11,102 +12,16 @@ tabs = {}
 rows = {}
 positions = {}
 panels = {}
+g = {"pending-day-writes": {}}
 
 
 def initialize_mem_store():
-    today_id = date.today().isoformat()
-    days[today_id] = {
-        "id": today_id,
-        "tab-ids": ["tab-a", "tab-b"],
-        "selected-tab-id": "tab-a",
-        "orientation-position": {
-            "id": f"{today_id}/orientation-position",
-            "panel-id": "orientation-a",
-        },
-    }
-    tabs["tab-a"] = {
-        "id": "tab-a",
-        "day-id": today_id,
-        "label": "Tab A",
-        "row-ids": ["row-a", "row-b"],
-        "scroll-position": 0.0,
-    }
-    tabs["tab-b"] = {
-        "id": "tab-b",
-        "day-id": today_id,
-        "label": "Tab B",
-        "row-ids": ["row-c", "row-d"],
-        "scroll-position": 0.0,
-    }
-    rows["row-a"] = {
-        "id": "row-a",
-        "tab-id": "tab-a",
-        "column-count": 2,
-        "height": 260,
-        "sash-proportions": [0.5],
-    }
-    rows["row-b"] = {
-        "id": "row-b",
-        "tab-id": "tab-a",
-        "column-count": 1,
-        "height": 160,
-        "sash-proportions": [],
-    }
-    rows["row-c"] = {
-        "id": "row-c",
-        "tab-id": "tab-b",
-        "column-count": 2,
-        "height": 260,
-        "sash-proportions": [0.5],
-    }
-    rows["row-d"] = {
-        "id": "row-d",
-        "tab-id": "tab-b",
-        "column-count": 1,
-        "height": 160,
-        "sash-proportions": [],
-    }
-    positions["row-a/column-1"] = {"panel-id": "whiteboard-a"}
-    positions["row-a/column-2"] = {"panel-id": "whiteboard-b"}
-    positions["row-b/column-1"] = {"panel-id": None}
-    positions["row-c/column-1"] = {"panel-id": "whiteboard-a"}
-    positions["row-c/column-2"] = {"panel-id": "whiteboard-c"}
-    positions["row-d/column-1"] = {"panel-id": None}
-    panels["whiteboard-a"] = {
-        "id": "whiteboard-a",
-        "day-id": today_id,
-        "type": "WHITEBOARD",
-        "label": "Whiteboard A",
-        "text": "",
-        "history": [],
-        "revision": 1,
-    }
-    panels["whiteboard-b"] = {
-        "id": "whiteboard-b",
-        "day-id": today_id,
-        "type": "WHITEBOARD",
-        "label": "Whiteboard B",
-        "text": "",
-        "history": [],
-        "revision": 1,
-    }
-    panels["whiteboard-c"] = {
-        "id": "whiteboard-c",
-        "day-id": today_id,
-        "type": "WHITEBOARD",
-        "label": "Whiteboard C",
-        "text": "",
-        "history": [],
-        "revision": 1,
-    }
-    panels["orientation-a"] = {
-        "id": "orientation-a",
-        "day-id": today_id,
-        "type": "ORIENTATION",
-        "label": "Orientation",
-        "text": "",
-        "revision": 1,
-    }
+    days.clear()
+    tabs.clear()
+    rows.clear()
+    positions.clear()
+    panels.clear()
+    g["pending-day-writes"].clear()
 
 
 def create_new_day(day_id):
@@ -171,10 +86,7 @@ def get_day_id_for_position(position_id):
     return tabs[get_tab_id_for_position(position_id)]["day-id"]
 
 
-def handle_when_mem_receives_get_day_layout():
-    day_id = mobile_stacks.get_register("day-id")
-    if day_id not in days:
-        create_new_day(day_id)
+def make_day_bundle(day_id):
     day = days[day_id]
     tab_records = {tab_id: deepcopy(tabs[tab_id]) for tab_id in day["tab-ids"]}
     row_records = {
@@ -187,19 +99,61 @@ def handle_when_mem_receives_get_day_layout():
         for row_id, row in row_records.items()
         for column in range(1, row["column-count"] + 1)
     }
+    panel_records = {
+        panel_id: deepcopy(panel)
+        for panel_id, panel in panels.items()
+        if panel["day-id"] == day_id
+    }
+    return {
+        "format": "today-day-v1",
+        "day": deepcopy(day),
+        "tabs": tab_records,
+        "rows": row_records,
+        "positions": position_records,
+        "panels": panel_records,
+    }
+
+
+def install_day_bundle(bundle):
+    day = bundle["day"]
+    day_id = day["id"]
+    if bundle.get("format") != "today-day-v1":
+        raise RuntimeError(f"unsupported day bundle for {day_id}")
+    if any(panel["day-id"] != day_id for panel in bundle["panels"].values()):
+        raise RuntimeError(f"panel ownership mismatch in {day_id}")
+    days[day_id] = deepcopy(day)
+    tabs.update(deepcopy(bundle["tabs"]))
+    rows.update(deepcopy(bundle["rows"]))
+    positions.update(deepcopy(bundle["positions"]))
+    panels.update(deepcopy(bundle["panels"]))
+
+
+def make_day_layout(day_id):
+    bundle = make_day_bundle(day_id)
+    return {
+        "day": bundle["day"],
+        "tabs": bundle["tabs"],
+        "rows": bundle["rows"],
+        "positions": bundle["positions"],
+        "panel-ids": sorted(bundle["panels"]),
+    }
+
+
+def mark_day_for_disk_save(day_id):
+    g["pending-day-writes"][day_id] = monotonic() + 1.0
+
+
+def handle_when_mem_receives_day_bundle():
+    day_id = mobile_stacks.get_register("day-id")
+    if day_id not in days:
+        bundle = mobile_stacks.get_register("day-bundle")
+        if bundle is None:
+            create_new_day(day_id)
+            mark_day_for_disk_save(day_id)
+        else:
+            install_day_bundle(bundle)
     print("Mem GET_DAY_LAYOUT:", day_id)
-    mobile_stacks.set_register(
-        (
-            "layout",
-            {
-                "day": deepcopy(day),
-                "tabs": tab_records,
-                "rows": row_records,
-                "positions": position_records,
-                "panel-ids": sorted(panel_id for panel_id, panel in panels.items() if panel["day-id"] == day_id),
-            },
-        )
-    )
+    mobile_stacks.set_register(("layout", make_day_layout(day_id)))
 
 
 def handle_when_mem_receives_get_panel():
@@ -217,6 +171,7 @@ def handle_when_mem_receives_select_tab():
     if tab_id not in days[day_id]["tab-ids"]:
         raise RuntimeError(f"tab {tab_id} is not in day {day_id}")
     days[day_id]["selected-tab-id"] = tab_id
+    mark_day_for_disk_save(day_id)
     print("Mem SELECT_TAB:", day_id, tab_id)
     mobile_stacks.set_register(("day-id", day_id))
     mobile_stacks.set_register(("tab-id", tab_id))
@@ -225,6 +180,7 @@ def handle_when_mem_receives_select_tab():
 def handle_when_mem_receives_set_row_height():
     row_id = mobile_stacks.get_register("row-id")
     rows[row_id]["height"] = mobile_stacks.get_register("height")
+    mark_day_for_disk_save(get_day_id_for_position(get_position_id(row_id, 1)))
     print("Mem SET_ROW_HEIGHT:", row_id, rows[row_id]["height"])
     mobile_stacks.set_register(("row", deepcopy(rows[row_id])))
     mobile_stacks.set_register(("layout-change", "ROW_HEIGHT"))
@@ -233,6 +189,7 @@ def handle_when_mem_receives_set_row_height():
 def handle_when_mem_receives_set_sash_proportions():
     row_id = mobile_stacks.get_register("row-id")
     rows[row_id]["sash-proportions"] = mobile_stacks.get_register("sash-proportions")
+    mark_day_for_disk_save(get_day_id_for_position(get_position_id(row_id, 1)))
     print("Mem SET_SASH_PROPORTIONS:", row_id, rows[row_id]["sash-proportions"])
     mobile_stacks.set_register(("row", deepcopy(rows[row_id])))
     mobile_stacks.set_register(("layout-change", "SASH_PROPORTIONS"))
@@ -255,6 +212,7 @@ def handle_when_mem_receives_set_row_column_count():
 
     row["column-count"] = column_count
     row["sash-proportions"] = [column / column_count for column in range(1, column_count)]
+    mark_day_for_disk_save(get_day_id_for_position(get_position_id(row_id, 1)))
     print("Mem SET_ROW_COLUMN_COUNT:", row_id, column_count)
     mobile_stacks.set_register(("row", deepcopy(row)))
     mobile_stacks.set_register(("layout-change", "ROW_COLUMNS"))
@@ -269,6 +227,7 @@ def handle_when_mem_receives_move_row():
     new_index = max(0, min(len(row_ids) - 1, old_index + direction))
     row_ids.pop(old_index)
     row_ids.insert(new_index, row_id)
+    mark_day_for_disk_save(tabs[tab_id]["day-id"])
     print("Mem MOVE_ROW:", row_id, "to", new_index)
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
     mobile_stacks.set_register(("layout-change", "TAB_ROWS"))
@@ -284,6 +243,7 @@ def handle_when_mem_receives_delete_row():
         row = rows.pop(row_id)
         for column in range(1, row["column-count"] + 1):
             positions.pop(get_position_id(row_id, column))
+        mark_day_for_disk_save(tabs[tab_id]["day-id"])
     print("Mem DELETE_ROW:", row_id, "deleted" if deleted else "kept final row")
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
     mobile_stacks.set_register(("deleted-row-id", row_id if deleted else None))
@@ -302,6 +262,7 @@ def handle_when_mem_receives_add_row():
     }
     positions[get_position_id(row_id, 1)] = {"panel-id": None}
     tabs[tab_id]["row-ids"].append(row_id)
+    mark_day_for_disk_save(tabs[tab_id]["day-id"])
     print("Mem ADD_ROW:", tab_id, row_id)
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
     mobile_stacks.set_register(("row", deepcopy(rows[row_id])))
@@ -312,6 +273,7 @@ def handle_when_mem_receives_set_tab_scroll_position():
     tab_id = mobile_stacks.get_register("tab-id")
     scroll_position = mobile_stacks.get_register("scroll-position")
     tabs[tab_id]["scroll-position"] = max(0.0, min(1.0, scroll_position))
+    mark_day_for_disk_save(tabs[tab_id]["day-id"])
     print("Mem SET_TAB_SCROLL_POSITION:", tab_id, tabs[tab_id]["scroll-position"])
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
     mobile_stacks.set_register(("layout-change", "TAB_SCROLL_POSITION"))
@@ -338,6 +300,7 @@ def handle_when_mem_receives_create_tab():
     positions[get_position_id(row_id, 1)] = {"panel-id": None}
     days[day_id]["tab-ids"].append(tab_id)
     days[day_id]["selected-tab-id"] = tab_id
+    mark_day_for_disk_save(day_id)
     print("Mem CREATE_TAB:", day_id, tab_id)
     mobile_stacks.set_register(("day", deepcopy(days[day_id])))
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
@@ -350,6 +313,7 @@ def handle_when_mem_receives_rename_tab():
     if not label:
         raise RuntimeError("tab label cannot be empty")
     tabs[tab_id]["label"] = label
+    mark_day_for_disk_save(tabs[tab_id]["day-id"])
     print("Mem RENAME_TAB:", tab_id, label)
     mobile_stacks.set_register(("tab", deepcopy(tabs[tab_id])))
 
@@ -368,6 +332,7 @@ def handle_when_mem_receives_delete_tab():
                 positions.pop(get_position_id(row_id, column))
         tabs.pop(tab_id)
         day["selected-tab-id"] = day["tab-ids"][min(old_index, len(day["tab-ids"]) - 1)]
+        mark_day_for_disk_save(day_id)
     print("Mem DELETE_TAB:", tab_id, "deleted" if deleted else "kept final tab")
     mobile_stacks.set_register(("day", deepcopy(day)))
     mobile_stacks.set_register(("tab-id", tab_id))
@@ -393,6 +358,7 @@ def handle_when_mem_receives_update_panel():
     accepted_panel["day-id"] = day_id
     accepted_panel["revision"] = current_panel["revision"] + 1
     panels[panel_id] = accepted_panel
+    mark_day_for_disk_save(day_id)
     print("Mem UPDATE_PANEL:", panel_id, "revision", base_revision, "->", accepted_panel["revision"])
     mobile_stacks.set_register(("update-result", "accepted"))
     mobile_stacks.set_register(("panel", deepcopy(accepted_panel)))
@@ -415,6 +381,7 @@ def handle_when_mem_receives_host_panel():
                 unhosted_position_id = other_position_id
 
     positions[position_id]["panel-id"] = panel_id
+    mark_day_for_disk_save(day_id)
     print("Mem HOST_PANEL:", position_id, "hosts", panel_id)
     mobile_stacks.set_register(("position-id", position_id))
     mobile_stacks.set_register(("panel-id", panel_id))
@@ -428,13 +395,51 @@ def handle_when_mem_receives_unhost_panel():
         raise RuntimeError(f"position {position_id} does not belong to day {day_id}")
     panel_id = positions[position_id]["panel-id"]
     positions[position_id]["panel-id"] = None
+    mark_day_for_disk_save(day_id)
     print("Mem UNHOST_PANEL:", position_id, "unhosts", panel_id)
     mobile_stacks.set_register(("position-id", position_id))
     mobile_stacks.set_register(("panel-id", None))
     mobile_stacks.set_register(("unhosted-position-id", None))
 
 
+def flush_day_writes_when_due(force=False):
+    now = monotonic()
+    day_ids = [
+        day_id
+        for day_id, deadline in g["pending-day-writes"].items()
+        if force or deadline <= now
+    ]
+    for day_id in day_ids:
+        g["pending-day-writes"].pop(day_id)
+        mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-bundle", make_day_bundle(day_id)))
+        mobile_stacks.push_frame({"machine": "DISK", "entry": "WRITE_DAY"})
+        machine.route_current_stack()
+
+
+def get_seconds_until_next_day_write():
+    if not g["pending-day-writes"]:
+        return None
+    return max(0.0, min(g["pending-day-writes"].values()) - monotonic())
+
+
 def run_mem_machine():
     machine.claim_machine("MEM")
     initialize_mem_store()
-    machine.run_machine()
+    runtime = machine.get_current_runtime()
+    runtime["running"] = True
+
+    while runtime["running"]:
+        try:
+            item = runtime["inbox"].get(timeout=get_seconds_until_next_day_write())
+        except Empty:
+            flush_day_writes_when_due()
+            continue
+
+        if item is None:
+            flush_day_writes_when_due(force=True)
+            runtime["running"] = False
+            return
+
+        machine.handle_received_mobile_stack(item)
+        flush_day_writes_when_due()
