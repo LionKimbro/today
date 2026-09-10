@@ -39,10 +39,10 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 | --- | --- |
 | `id` | Panel identity |
 | `day-id` | Owning day identity |
-| `type` | Panel kind: currently `WHITEBOARD` |
+| `type` | Panel kind: `WHITEBOARD` or top-slot-only `ORIENTATION` |
 | `label` | Visible label |
-| `text` | Whiteboard contents |
-| `history` | Whiteboard snapshots |
+| `text` | Panel text |
+| `history` | Whiteboard snapshots only |
 | `revision` | Canonical update revision |
 
 ## Hosting
@@ -54,6 +54,10 @@ The position and panel record remain.
 
 A panel appears at most once in a tab. The same panel may appear in another
 tab's position on its owning day.
+
+The day-owned `orientation-position` is outside this tab geometry. It hosts
+one fixed `ORIENTATION` panel for now; it has text and revisions, but no
+history.
 
 Core's snapshot may additionally hold `dirty`, `awaiting`, `edit-generation`,
 and `save-generation`. Those are working facts, never canonical Mem fields.

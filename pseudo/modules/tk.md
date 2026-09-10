@@ -8,8 +8,11 @@ DOES NOT OWN: Today state or decisions.
 
 The hosted-panel combobox sends `HOST_PANEL`; it does not swap panels itself.
 
-The top-left `<`, date, `Today`, and `>` controls send day-selection events.
+The top-left `<`, date, `今`, and `>` controls send day-selection events.
 Tk presents only the date Core has rendered.
+
+The top-right Orientation editor is the day-level special position. It sends
+the ordinary text events and has no history controls.
 
 Text input resets one 1-second debounce. Its expiry sends generic
 `TEXT_DEBOUNCE`; Tk does not decide whether to save.

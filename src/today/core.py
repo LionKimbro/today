@@ -15,6 +15,7 @@ g = {
     "pending-initial-panel-ids": [],
     "selected-tab-id": None,
     "pending-day-id": None,
+    "orientation-position": None,
 }
 
 tabs = {}
@@ -70,7 +71,11 @@ def get_available_panel_ids(position_id):
         for position_id in get_position_ids_for_tab(tab_id)
     }
     hosted_panel_ids.discard(None)
-    return [panel_id for panel_id in g["known-panel-ids"] if panel_id not in hosted_panel_ids]
+    return [
+        panel_id
+        for panel_id in g["known-panel-ids"]
+        if panel_id not in hosted_panel_ids and visible_panels[panel_id]["type"] == "WHITEBOARD"
+    ]
 
 
 def get_tab_rendering(tab_id):
@@ -95,12 +100,20 @@ def get_tab_rendering(tab_id):
 
 
 def get_day_rendering():
+    orientation_panel = visible_panels[g["orientation-position"]["panel-id"]]
     return {
         "tabs": [
             {"tab-id": tab_id, **get_tab_rendering(tab_id)}
             for tab_id in tabs
         ],
         "selected-tab-id": g["selected-tab-id"],
+        "orientation": {
+            "position-id": g["orientation-position"]["id"],
+            "panel-id": orientation_panel["id"],
+            "panel-label": orientation_panel["label"],
+            "panel-type": orientation_panel["type"],
+            "panel-text": orientation_panel["text"],
+        },
     }
 
 
@@ -137,7 +150,7 @@ def request_day_navigation(day_id):
     return get_day_navigation_effect_when_ready()
 
 
-def prepare_whiteboard_update(panel_id):
+def prepare_text_panel_update(panel_id):
     panel = visible_panels[panel_id]
     panel["awaiting"] = "MEM_UPDATE"
     panel["save-generation"] = panel["edit-generation"]
@@ -187,6 +200,7 @@ def reduce_event(event):
         layout = event["layout"]
         g["current-day-id"] = layout["day"]["id"]
         g["selected-tab-id"] = layout["day"]["selected-tab-id"]
+        g["orientation-position"] = layout["day"]["orientation-position"]
         g["known-panel-ids"] = layout["panel-ids"]
         tabs.clear()
         tabs.update(layout["tabs"])
@@ -196,7 +210,14 @@ def reduce_event(event):
         positions.update(layout["positions"])
         visible_panels.clear()
         g["pending-initial-panel-ids"] = sorted(
-            {position["panel-id"] for position in positions.values() if position["panel-id"] is not None}
+            {
+                *(
+                    position["panel-id"]
+                    for position in positions.values()
+                    if position["panel-id"] is not None
+                ),
+                g["orientation-position"]["panel-id"],
+            }
         )
         return [
             {"type": "GET_PANEL", "panel-id": panel_id}
@@ -402,9 +423,9 @@ def reduce_event(event):
 
     if event["type"] == "TEXT_CHANGED":
         panel = visible_panels[event["panel-id"]]
-        if panel["type"] != "WHITEBOARD":
+        if panel["type"] not in {"WHITEBOARD", "ORIENTATION"}:
             return []
-        if panel["history-cursor"] != 0:
+        if panel["type"] == "WHITEBOARD" and panel["history-cursor"] != 0:
             make_whiteboard_snapshot(panel)
             panel["history-cursor"] = 0
             panel["text"] = event["text"]
@@ -426,7 +447,7 @@ def reduce_event(event):
             or panel["save-generation"] is not None
         ):
             return []
-        return [prepare_whiteboard_update(event["panel-id"])]
+        return [prepare_text_panel_update(event["panel-id"])]
 
     if event["type"] == "HISTORY_CURSOR_CHANGED":
         panel = visible_panels[event["panel-id"]]
@@ -442,23 +463,28 @@ def reduce_event(event):
         panel["dirty"] = True
         panel["awaiting"] = "MEM_UPDATE"
         panel["edit-generation"] += 1
-        return [prepare_whiteboard_update(event["panel-id"])]
+        return [prepare_text_panel_update(event["panel-id"])]
 
     if event["type"] == "PANEL_UPDATED":
         install_panel_snapshot(event["panel"])
         print("Core reducer: PANEL_UPDATED", event["panel-id"], "revision", event["panel"]["revision"])
         return [{"type": "SET_PANEL_LABEL", "panel-id": event["panel-id"]}]
 
-    if event["type"] == "WHITEBOARD_UPDATED":
+    if event["type"] == "TEXT_PANEL_UPDATED":
         panel = visible_panels[event["panel-id"]]
         accepted_panel = event["panel"]
         if panel["edit-generation"] > event["save-generation"]:
             panel["revision"] = accepted_panel["revision"]
             panel["save-generation"] = None
             panel["awaiting"] = "TEXT_DEBOUNCE"
-            return [prepare_whiteboard_update(event["panel-id"])]
+            return [prepare_text_panel_update(event["panel-id"])]
         install_panel_snapshot(accepted_panel)
-        print("Core reducer: WHITEBOARD_UPDATED", event["panel-id"], "revision", accepted_panel["revision"])
+        print("Core reducer: TEXT_PANEL_UPDATED", event["panel-id"], "revision", accepted_panel["revision"])
+        if accepted_panel["type"] == "ORIENTATION":
+            return [
+                {"type": "SET_ORIENTATION_TEXT", "panel-id": event["panel-id"]},
+                *get_day_navigation_effect_when_ready(),
+            ]
         return [
             {"type": "RENDER_WHITEBOARD_VIEW", "panel-id": event["panel-id"]},
             *get_day_navigation_effect_when_ready(),
@@ -702,6 +728,17 @@ def dispatch_effect(effect):
         )
         return
 
+    if effect["type"] == "SET_ORIENTATION_TEXT":
+        panel = visible_panels[effect["panel-id"]]
+        g["send-tk-command"](
+            {
+                "type": "SET_ORIENTATION_TEXT",
+                "panel-id": panel["id"],
+                "panel-text": panel["text"],
+            }
+        )
+        return
+
     if effect["type"] == "SET_WHITEBOARD_HISTORY_CURSOR":
         panel = visible_panels[effect["panel-id"]]
         g["send-tk-command"](
@@ -841,7 +878,7 @@ def handle_when_core_receives_panel_update():
         if mobile_stacks.has_register("save-generation"):
             g["reducer-events"].append(
                 {
-                    "type": "WHITEBOARD_UPDATED",
+                    "type": "TEXT_PANEL_UPDATED",
                     "panel-id": panel_id,
                     "panel": panel,
                     "save-generation": mobile_stacks.get_register("save-generation"),

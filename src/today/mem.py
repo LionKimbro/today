@@ -19,6 +19,10 @@ def initialize_mem_store():
         "id": today_id,
         "tab-ids": ["tab-a", "tab-b"],
         "selected-tab-id": "tab-a",
+        "orientation-position": {
+            "id": f"{today_id}/orientation-position",
+            "panel-id": "orientation-a",
+        },
     }
     tabs["tab-a"] = {
         "id": "tab-a",
@@ -95,13 +99,30 @@ def initialize_mem_store():
         "history": [],
         "revision": 1,
     }
+    panels["orientation-a"] = {
+        "id": "orientation-a",
+        "day-id": today_id,
+        "type": "ORIENTATION",
+        "label": "Orientation",
+        "text": "",
+        "revision": 1,
+    }
 
 
 def create_new_day(day_id):
     tab_id = f"tab-{uuid4().hex}"
     row_id = f"row-{uuid4().hex}"
     panel_id = f"whiteboard-{uuid4().hex}"
-    days[day_id] = {"id": day_id, "tab-ids": [tab_id], "selected-tab-id": tab_id}
+    orientation_panel_id = f"orientation-{uuid4().hex}"
+    days[day_id] = {
+        "id": day_id,
+        "tab-ids": [tab_id],
+        "selected-tab-id": tab_id,
+        "orientation-position": {
+            "id": f"{day_id}/orientation-position",
+            "panel-id": orientation_panel_id,
+        },
+    }
     tabs[tab_id] = {
         "id": tab_id,
         "day-id": day_id,
@@ -124,6 +145,14 @@ def create_new_day(day_id):
         "label": "Whiteboard",
         "text": "",
         "history": [],
+        "revision": 1,
+    }
+    panels[orientation_panel_id] = {
+        "id": orientation_panel_id,
+        "day-id": day_id,
+        "type": "ORIENTATION",
+        "label": "Orientation",
+        "text": "",
         "revision": 1,
     }
     print("Mem CREATE_DAY:", day_id)

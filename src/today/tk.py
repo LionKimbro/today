@@ -32,6 +32,7 @@ g = {
     "selecting-tab": False,
     "text-debounce-ids": {},
     "scroll-save-ids": {},
+    "orientation-panel-id": None,
     "outgoing-events": None,
     "incoming-commands": None,
 }
@@ -119,6 +120,31 @@ def build_today_window():
     widgets["date"].pack(side="left", padx=2)
     make_day_navigation_button(top, "今", handle_when_user_clicks_today_button)
     make_day_navigation_button(top, ">", handle_when_user_clicks_next_day_button)
+    orientation_host = tkinter.Frame(
+        top,
+        background=COLORS["border"],
+    )
+    orientation_host.pack(side="right", fill="x", expand=True, padx=(18, 0))
+    widgets["orientation-text"] = tkinter.Text(
+        orientation_host,
+        height=1,
+        wrap="word",
+        background=COLORS["editor"],
+        foreground=COLORS["primary-text"],
+        insertbackground=COLORS["primary-text"],
+        selectbackground=COLORS["accent-blue"],
+        selectforeground=COLORS["primary-text"],
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=0,
+        padx=8,
+        pady=6,
+    )
+    widgets["orientation-text"].pack(fill="x", padx=1, pady=1)
+    widgets["orientation-text"].bind(
+        "<<Modified>>",
+        lambda event: handle_when_text_widget_changes(event, g["orientation-panel-id"]),
+    )
 
     widgets["tabs"] = ttk.Notebook(g["root"], style="Page.TNotebook")
     widgets["tabs"].grid(row=1, column=0, sticky="nsew")
@@ -139,7 +165,7 @@ def build_today_window():
 
 def handle_when_text_widget_changes(event, panel_id):
     event.widget.edit_modified(False)
-    if g["rendering-text"]:
+    if g["rendering-text"] or panel_id is None:
         return
     g["outgoing-events"].put(
         {
@@ -480,6 +506,7 @@ def enqueue_core_command_and_wake_tk(command):
 def realize_core_command(command):
     if command["type"] == "RENDER_TODAY":
         widgets["date"].configure(text=command["today-id"])
+        render_orientation_panel(command["orientation"])
         build_today_tabs(command)
         return
 
@@ -493,6 +520,10 @@ def realize_core_command(command):
 
     if command["type"] == "RENDER_WHITEBOARD_VIEW":
         render_whiteboard_view(command)
+        return
+
+    if command["type"] == "SET_ORIENTATION_TEXT":
+        render_orientation_panel(command)
         return
 
     if command["type"] == "SET_WHITEBOARD_HISTORY_CURSOR":
@@ -960,6 +991,16 @@ def render_whiteboard_view(command):
         panel["text"].edit_modified(False)
     g["root"].after_idle(handle_after_rendering_whiteboard_text)
     render_whiteboard_history_controls(command)
+
+
+def render_orientation_panel(command):
+    g["orientation-panel-id"] = command["panel-id"]
+    text = widgets["orientation-text"]
+    g["rendering-text"] = True
+    text.delete("1.0", "end")
+    text.insert("1.0", command["panel-text"])
+    text.edit_modified(False)
+    g["root"].after_idle(handle_after_rendering_whiteboard_text)
 
 
 def render_whiteboard_history_controls(command):
