@@ -170,6 +170,14 @@ PSEUDOCODE:
   TEXT_DEBOUNCE may emit UPDATE_PANEL. Mem acceptance clears the dirty state.
 
 
+  == To-Do panels ==
+
+  canonical text has one `[ ]`, `[>]`, or `[x]` item per line.
+  TODO_ADD_ITEM / TODO_DELETE_ITEM / TODO_CYCLE_ITEM_STATE / TODO_MOVE_ITEM
+  transform that text in Core, then emit the ordinary revisioned UPDATE_PANEL.
+  TODO_TEXT_CHANGED uses the normal text debounce.
+
+
   == Stage 6 Whiteboard history ==
 
   HISTORY_CURSOR_CHANGED changes only the viewed version.

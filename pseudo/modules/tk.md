@@ -17,6 +17,10 @@ the ordinary text events and has no history controls.
 Text input resets one 1-second debounce. Its expiry sends generic
 `TEXT_DEBOUNCE`; Tk does not decide whether to save.
 
+A To-Do panel has Tk-local `List` / `Text` presentation selection. List
+controls send semantic item events; Text sends `TODO_TEXT_CHANGED` and uses the
+same debounce. Returning to List flushes a pending text debounce first.
+
 Tk renders the history slider and Snapshot button. The visible version's status
 uses the global status bar; Tk does not interpret history.
 

@@ -1,5 +1,6 @@
 """The Core machine: reducer state, effects, and returned Mobile Stacks."""
 
+import re
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 
@@ -63,6 +64,8 @@ def get_position_rendering(position_id):
     }
     if panel["type"] == "WHITEBOARD":
         return {**rendering, **get_whiteboard_view(panel)}
+    if panel["type"] == "TODO":
+        return {**rendering, "panel-text": panel["text"], "todo-items": get_todo_items(panel)}
     return {**rendering, "panel-text": panel["text"]}
 
 
@@ -183,6 +186,36 @@ def get_whiteboard_view(panel):
         "history-size": len(panel["history"]),
         "history-status": snapshot["timestamp"],
     }
+
+
+def get_todo_items(panel):
+    items = []
+    for line in panel["text"].splitlines():
+        if not line.strip():
+            continue
+        match = re.fullmatch(r"\[([ x>])\]\s*(.*)", line)
+        marker, text = (match.group(1), match.group(2)) if match else (" ", line.strip())
+        items.append(
+            {
+                "state": {" ": "OPEN", ">": "WORKING", "x": "DONE"}[marker],
+                "text": text,
+            }
+        )
+    return items
+
+
+def get_todo_text(items):
+    marker_by_state = {"OPEN": " ", "WORKING": ">", "DONE": "x"}
+    return "\n".join(f"[{marker_by_state[item['state']]}] {item['text']}" for item in items)
+
+
+def prepare_todo_items_update(panel_id, items):
+    panel = visible_panels[panel_id]
+    panel["text"] = get_todo_text(items)
+    panel["dirty"] = True
+    panel["awaiting"] = "MEM_UPDATE"
+    panel["edit-generation"] += 1
+    return [prepare_text_panel_update(panel_id)]
 
 
 def make_whiteboard_snapshot(panel):
@@ -475,6 +508,59 @@ def reduce_event(event):
         panel["edit-generation"] += 1
         return []
 
+    if event["type"] == "TODO_TEXT_CHANGED":
+        panel = visible_panels.get(event["panel-id"])
+        if panel is None or panel["type"] != "TODO":
+            return []
+        panel["text"] = event["text"]
+        panel["dirty"] = True
+        panel["awaiting"] = "TEXT_DEBOUNCE"
+        panel["edit-generation"] += 1
+        return []
+
+    if event["type"] == "TODO_ADD_ITEM":
+        panel = visible_panels.get(event["panel-id"])
+        text = event["text"].strip()
+        if panel is None or panel["type"] != "TODO" or not text:
+            return []
+        return prepare_todo_items_update(
+            event["panel-id"], [*get_todo_items(panel), {"state": "OPEN", "text": text}]
+        )
+
+    if event["type"] == "TODO_DELETE_ITEM":
+        panel = visible_panels.get(event["panel-id"])
+        if panel is None or panel["type"] != "TODO":
+            return []
+        items = get_todo_items(panel)
+        if not 0 <= event["item-index"] < len(items):
+            return []
+        items.pop(event["item-index"])
+        return prepare_todo_items_update(event["panel-id"], items)
+
+    if event["type"] == "TODO_CYCLE_ITEM_STATE":
+        panel = visible_panels.get(event["panel-id"])
+        if panel is None or panel["type"] != "TODO":
+            return []
+        items = get_todo_items(panel)
+        if not 0 <= event["item-index"] < len(items):
+            return []
+        next_state = {"OPEN": "WORKING", "WORKING": "DONE", "DONE": "OPEN"}
+        items[event["item-index"]]["state"] = next_state[items[event["item-index"]]["state"]]
+        return prepare_todo_items_update(event["panel-id"], items)
+
+    if event["type"] == "TODO_MOVE_ITEM":
+        panel = visible_panels.get(event["panel-id"])
+        if panel is None or panel["type"] != "TODO":
+            return []
+        items = get_todo_items(panel)
+        item_index = event["item-index"]
+        if not 0 <= item_index < len(items):
+            return []
+        destination_index = max(0, min(len(items) - 1, item_index + event["direction"]))
+        item = items.pop(item_index)
+        items.insert(destination_index, item)
+        return prepare_todo_items_update(event["panel-id"], items)
+
     if event["type"] == "TEXT_DEBOUNCE":
         panel = visible_panels[event["panel-id"]]
         if (
@@ -522,6 +608,11 @@ def reduce_event(event):
                 *get_day_navigation_effect_when_ready(),
             ]
         if accepted_panel["type"] != "WHITEBOARD":
+            if accepted_panel["type"] == "TODO":
+                return [
+                    {"type": "RENDER_TODO_VIEW", "panel-id": event["panel-id"]},
+                    *get_day_navigation_effect_when_ready(),
+                ]
             return [
                 {"type": "SET_PANEL_TEXT", "panel-id": event["panel-id"]},
                 *get_day_navigation_effect_when_ready(),
@@ -733,6 +824,18 @@ def dispatch_effect(effect):
         panel = visible_panels[effect["panel-id"]]
         g["send-tk-command"](
             {"type": "SET_PANEL_TEXT", "panel-id": panel["id"], "panel-text": panel["text"]}
+        )
+        return
+
+    if effect["type"] == "RENDER_TODO_VIEW":
+        panel = visible_panels[effect["panel-id"]]
+        g["send-tk-command"](
+            {
+                "type": "RENDER_TODO_VIEW",
+                "panel-id": panel["id"],
+                "panel-text": panel["text"],
+                "todo-items": get_todo_items(panel),
+            }
         )
         return
 

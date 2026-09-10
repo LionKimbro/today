@@ -35,6 +35,8 @@ g = {
     "scroll-save-ids": {},
     "orientation-panel-id": None,
     "delete-confirmation-suppressed-until": 0.0,
+    "todo-view-modes": {},
+    "pending-todo-view-modes": {},
     "outgoing-events": None,
     "incoming-commands": None,
 }
@@ -165,13 +167,13 @@ def build_today_window():
     widgets["status"].grid(row=2, column=0, sticky="ew")
 
 
-def handle_when_text_widget_changes(event, panel_id):
+def handle_when_text_widget_changes(event, panel_id, event_type="TEXT_CHANGED"):
     event.widget.edit_modified(False)
     if g["rendering-text"] or panel_id is None:
         return
     g["outgoing-events"].put(
         {
-            "type": "TEXT_CHANGED",
+            "type": event_type,
             "panel-id": panel_id,
             "text": event.widget.get("1.0", "end-1c"),
         }
@@ -590,6 +592,10 @@ def realize_core_command(command):
         render_panel_text(command)
         return
 
+    if command["type"] == "RENDER_TODO_VIEW":
+        render_todo_view(command)
+        return
+
     if command["type"] == "SET_WHITEBOARD_HISTORY_CURSOR":
         render_whiteboard_history_controls(command)
         return
@@ -959,7 +965,211 @@ def render_empty_position(command):
     position["choice"] = choice
 
 
+def send_todo_event(event):
+    g["outgoing-events"].put(event)
+
+
+def handle_when_user_requests_todo_view_mode(panel_id, mode):
+    if mode == "LIST" and panel_id in g["text-debounce-ids"]:
+        g["pending-todo-view-modes"][panel_id] = mode
+        g["root"].after_cancel(g["text-debounce-ids"].pop(panel_id))
+        handle_when_text_debounce_expires(panel_id)
+        return
+    g["todo-view-modes"][panel_id] = mode
+    for panel in panel_widgets.get(panel_id, []):
+        if "todo-command" in panel:
+            render_todo_mode_buttons(panel, mode)
+            render_todo_presentation(panel, panel["todo-command"])
+
+
+def render_todo_panel(command):
+    position = position_widgets[command["position-id"]]
+    host = position["host"]
+    position["panel-id"] = command["panel-id"]
+    host.columnconfigure(1, weight=1)
+    host.rowconfigure(1, weight=1)
+    tkinter.Frame(host, background=get_panel_accent(command["panel-id"]), width=5).grid(
+        row=0, column=0, sticky="ns", padx=(0, 12)
+    )
+    label = ttk.Label(host, text=command["panel-label"], style="PanelTitle.TLabel")
+    label.grid(row=0, column=1, sticky="w")
+    modes = tkinter.Frame(host, background=COLORS["panel"])
+    modes.grid(row=0, column=2, sticky="e")
+    mode_buttons = {}
+    for mode, text in (("LIST", "List"), ("TEXT", "Text")):
+        button = tkinter.Button(
+            modes,
+            text=text,
+            background=COLORS["control"],
+            foreground=COLORS["secondary-text"],
+            activebackground=COLORS["divider"],
+            activeforeground=COLORS["primary-text"],
+            relief="flat",
+            borderwidth=0,
+            padx=6,
+            pady=3,
+            command=lambda mode=mode, panel_id=command["panel-id"]: handle_when_user_requests_todo_view_mode(
+                panel_id, mode
+            ),
+        )
+        button.pack(side="left", padx=(0, 3))
+        mode_buttons[mode] = button
+    unhost_button = tkinter.Button(
+        host,
+        text="x",
+        background=COLORS["control"],
+        foreground=COLORS["secondary-text"],
+        activebackground=COLORS["divider"],
+        activeforeground=COLORS["primary-text"],
+        relief="flat",
+        borderwidth=0,
+        width=2,
+        padx=2,
+        pady=3,
+        command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(
+            position_id
+        ),
+    )
+    unhost_button.grid(row=0, column=3, sticky="e")
+    unhost_button.bind(
+        "<Control-ButtonRelease-1>",
+        lambda event, panel_id=command["panel-id"]: handle_when_user_control_clicks_delete_panel(
+            event, panel_id
+        ),
+    )
+    content = tkinter.Frame(host, background=COLORS["panel"])
+    content.grid(row=1, column=1, columnspan=3, sticky="nsew", pady=(14, 0))
+    panel = {
+        "label": label,
+        "todo-content": content,
+        "todo-command": command,
+        "todo-mode-buttons": mode_buttons,
+    }
+    position["panel-widgets"] = panel
+    panel_widgets.setdefault(command["panel-id"], []).append(panel)
+    g["todo-view-modes"].setdefault(command["panel-id"], "LIST")
+    render_todo_mode_buttons(panel, g["todo-view-modes"][command["panel-id"]])
+    render_todo_presentation(panel, command)
+
+
+def render_todo_mode_buttons(panel, selected_mode):
+    for mode, button in panel["todo-mode-buttons"].items():
+        selected = mode == selected_mode
+        button.configure(
+            background=COLORS["accent-blue"] if selected else COLORS["control"],
+            foreground=COLORS["primary-text"] if selected else COLORS["secondary-text"],
+        )
+
+
+def render_todo_presentation(panel, command):
+    content = panel["todo-content"]
+    for child in content.winfo_children():
+        child.destroy()
+    panel.pop("text", None)
+    panel["todo-command"] = command
+    panel_id = command["panel-id"]
+    if g["todo-view-modes"].get(panel_id, "LIST") == "TEXT":
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(0, weight=1)
+        text = tkinter.Text(
+            content,
+            height=10,
+            wrap="word",
+            background=COLORS["editor"],
+            foreground=COLORS["primary-text"],
+            insertbackground=COLORS["primary-text"],
+            selectbackground=COLORS["accent-blue"],
+            selectforeground=COLORS["primary-text"],
+            relief="solid",
+            borderwidth=1,
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            highlightcolor=COLORS["accent-blue"],
+        )
+        text.grid(row=0, column=0, sticky="nsew")
+        g["rendering-text"] = True
+        text.insert("1.0", command["panel-text"])
+        text.edit_modified(False)
+        g["root"].after_idle(handle_after_rendering_whiteboard_text)
+        text.bind(
+            "<<Modified>>",
+            lambda event, panel_id=panel_id: handle_when_text_widget_changes(
+                event, panel_id, "TODO_TEXT_CHANGED"
+            ),
+        )
+        panel["text"] = text
+        return
+
+    for item_index, item in enumerate(command["todo-items"]):
+        row = tkinter.Frame(content, background=COLORS["panel"])
+        row.pack(fill="x", pady=(0, 4))
+        marker = {"OPEN": "[ ]", "WORKING": "[>]", "DONE": "[x]"}[item["state"]]
+        tkinter.Button(
+            row,
+            text=marker,
+            width=3,
+            command=lambda panel_id=panel_id, item_index=item_index: send_todo_event(
+                {"type": "TODO_CYCLE_ITEM_STATE", "panel-id": panel_id, "item-index": item_index}
+            ),
+        ).pack(side="left")
+        tkinter.Label(
+            row,
+            text=item["text"],
+            background=COLORS["panel"],
+            foreground=COLORS["primary-text"],
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True, padx=6)
+        for text, direction in (("↑", -1), ("↓", 1)):
+            tkinter.Button(
+                row,
+                text=text,
+                width=2,
+                command=lambda direction=direction, panel_id=panel_id, item_index=item_index: send_todo_event(
+                    {
+                        "type": "TODO_MOVE_ITEM",
+                        "panel-id": panel_id,
+                        "item-index": item_index,
+                        "direction": direction,
+                    }
+                ),
+            ).pack(side="left")
+        tkinter.Button(
+            row,
+            text="x",
+            width=2,
+            command=lambda panel_id=panel_id, item_index=item_index: send_todo_event(
+                {"type": "TODO_DELETE_ITEM", "panel-id": panel_id, "item-index": item_index}
+            ),
+        ).pack(side="left")
+    add_row = tkinter.Frame(content, background=COLORS["panel"])
+    add_row.pack(fill="x", pady=(8, 0))
+    add_text = tkinter.Entry(add_row)
+    add_text.pack(side="left", fill="x", expand=True)
+
+    def add_todo_item(event=None):
+        text = add_text.get()
+        if not text.strip():
+            return
+        add_text.delete(0, "end")
+        send_todo_event({"type": "TODO_ADD_ITEM", "panel-id": panel_id, "text": text})
+
+    add_text.bind("<Return>", add_todo_item)
+    tkinter.Button(add_row, text="Add", command=add_todo_item).pack(side="left", padx=(6, 0))
+
+
+def render_todo_view(command):
+    panel_id = command["panel-id"]
+    if panel_id in g["pending-todo-view-modes"]:
+        g["todo-view-modes"][panel_id] = g["pending-todo-view-modes"].pop(panel_id)
+    for panel in panel_widgets.get(panel_id, []):
+        if "todo-content" in panel:
+            render_todo_presentation(panel, command)
+
+
 def render_hosted_panel(command):
+    if command["panel-type"] == "TODO":
+        render_todo_panel(command)
+        return
     position = position_widgets[command["position-id"]]
     host = position["host"]
     position["panel-id"] = command["panel-id"]

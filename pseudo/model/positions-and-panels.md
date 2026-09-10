@@ -60,8 +60,23 @@ one fixed `ORIENTATION` panel for now; it has text and revisions, but no
 history.
 
 An empty ordinary position offers existing eligible panels plus creation of a
-Whiteboard, To-Do, or Journal. New To-Do and Journal panels are plain editable
-text panels until their real instruments are defined.
+Whiteboard, To-Do, or Journal.
+
+## To-Do panels
+
+A To-Do panel's canonical `text` is one item per line:
+
+```text
+[ ] Open item
+[>] Working item
+[x] Done item
+```
+
+`List` and `Text` are Tk presentations of that one record. List controls send
+semantic item events; Text editing uses the ordinary one-second debounce.
+Either path becomes the normal revisioned `UPDATE_PANEL` request to Mem.
+
+Journal remains a plain text panel for now.
 
 Deleting a panel is distinct from unhosting: it removes the day-owned record
 and every ordinary hosting reference to it.
