@@ -107,23 +107,16 @@ def build_today_window():
 
     top = tkinter.Frame(g["root"], background=COLORS["top"], padx=12, pady=10)
     top.grid(row=0, column=0, sticky="ew")
-    widgets["title"] = tkinter.Label(
-        top,
-        text="Today",
-        background=COLORS["top"],
-        foreground=COLORS["primary-text"],
-        font=("TkDefaultFont", 18, "bold"),
-    )
-    widgets["title"].pack(side="left")
     make_day_navigation_button(top, "<", handle_when_user_clicks_previous_day_button)
     widgets["date"] = tkinter.Label(
         top,
         background=COLORS["top"],
-        foreground=COLORS["secondary-text"],
-        width=12,
+        foreground=COLORS["primary-text"],
+        font=("TkDefaultFont", 18, "bold"),
+        width=10,
         anchor="center",
     )
-    widgets["date"].pack(side="left", padx=6)
+    widgets["date"].pack(side="left", padx=2)
     make_day_navigation_button(top, "今", handle_when_user_clicks_today_button)
     make_day_navigation_button(top, ">", handle_when_user_clicks_next_day_button)
 
