@@ -63,7 +63,6 @@ def build_today_window():
         "Page.TNotebook.Tab",
         background=COLORS["top"],
         foreground=COLORS["secondary-text"],
-        width=5,
         padding=(8, 5),
     )
     style.map(
