@@ -163,6 +163,15 @@ PSEUDOCODE:
       -> Mem accepts or conflicts
       -> PANEL_UPDATED or PANEL_UPDATE_CONFLICT reducer event
 
+  text update accepted
+      -> accepted-revision + save-generation only
+      -> update Core revision bookkeeping
+      -> no Tk command
+
+  if a newer edit-generation exists when acceptance arrives
+      -> retain dirty state
+      -> send that newer proposal using accepted-revision
+
 
   == Stage 5 Whiteboards ==
 

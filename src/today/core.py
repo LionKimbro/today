@@ -592,35 +592,22 @@ def reduce_event(event):
         print("Core reducer: PANEL_UPDATED", event["panel-id"], "revision", event["panel"]["revision"])
         return [{"type": "SET_PANEL_LABEL", "panel-id": event["panel-id"]}]
 
-    if event["type"] == "TEXT_PANEL_UPDATED":
+    if event["type"] == "TEXT_PANEL_UPDATE_ACCEPTED":
         panel = visible_panels[event["panel-id"]]
-        accepted_panel = event["panel"]
+        panel["revision"] = event["accepted-revision"]
         if panel["edit-generation"] > event["save-generation"]:
-            panel["revision"] = accepted_panel["revision"]
             panel["save-generation"] = None
-            panel["awaiting"] = "TEXT_DEBOUNCE"
             return [prepare_text_panel_update(event["panel-id"])]
-        install_panel_snapshot(accepted_panel)
-        print("Core reducer: TEXT_PANEL_UPDATED", event["panel-id"], "revision", accepted_panel["revision"])
-        if accepted_panel["type"] == "ORIENTATION":
-            return [
-                {"type": "SET_ORIENTATION_TEXT", "panel-id": event["panel-id"]},
-                *get_day_navigation_effect_when_ready(),
-            ]
-        if accepted_panel["type"] != "WHITEBOARD":
-            if accepted_panel["type"] == "TODO":
-                return [
-                    {"type": "RENDER_TODO_VIEW", "panel-id": event["panel-id"]},
-                    *get_day_navigation_effect_when_ready(),
-                ]
-            return [
-                {"type": "SET_PANEL_TEXT", "panel-id": event["panel-id"]},
-                *get_day_navigation_effect_when_ready(),
-            ]
-        return [
-            {"type": "RENDER_WHITEBOARD_VIEW", "panel-id": event["panel-id"]},
-            *get_day_navigation_effect_when_ready(),
-        ]
+        panel["dirty"] = False
+        panel["awaiting"] = None
+        panel["save-generation"] = None
+        print(
+            "Core reducer: TEXT_PANEL_UPDATE_ACCEPTED",
+            event["panel-id"],
+            "revision",
+            event["accepted-revision"],
+        )
+        return get_day_navigation_effect_when_ready()
 
     if event["type"] == "PANEL_UPDATE_CONFLICT":
         print("Core reducer: PANEL_UPDATE_CONFLICT", event["panel-id"], "revision", event["panel"]["revision"])
@@ -1063,22 +1050,24 @@ def handle_when_core_receives_deleted_tab():
 
 def handle_when_core_receives_panel_update():
     panel_id = mobile_stacks.get_register("panel-id")
-    panel = deepcopy(mobile_stacks.get_register("panel"))
     if mobile_stacks.get_register("update-result") == "accepted":
-        print("Core stack return: PANEL_UPDATED", panel_id, "revision", panel["revision"])
+        accepted_revision = mobile_stacks.get_register("accepted-revision")
+        print("Core stack return: PANEL_UPDATE_ACCEPTED", panel_id, "revision", accepted_revision)
         if mobile_stacks.has_register("save-generation"):
             g["reducer-events"].append(
                 {
-                    "type": "TEXT_PANEL_UPDATED",
+                    "type": "TEXT_PANEL_UPDATE_ACCEPTED",
                     "panel-id": panel_id,
-                    "panel": panel,
+                    "accepted-revision": accepted_revision,
                     "save-generation": mobile_stacks.get_register("save-generation"),
                 }
             )
             return
+        panel = deepcopy(mobile_stacks.get_register("panel"))
         g["reducer-events"].append({"type": "PANEL_UPDATED", "panel-id": panel_id, "panel": panel})
         return
 
+    panel = deepcopy(mobile_stacks.get_register("panel"))
     print("Core stack return: PANEL_UPDATE_CONFLICT", panel_id, "revision", panel["revision"])
     g["reducer-events"].append(
         {"type": "PANEL_UPDATE_CONFLICT", "panel-id": panel_id, "panel": panel}

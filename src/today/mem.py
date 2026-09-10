@@ -383,7 +383,9 @@ def handle_when_mem_receives_update_panel():
     mark_day_for_disk_save(day_id)
     print("Mem UPDATE_PANEL:", panel_id, "revision", base_revision, "->", accepted_panel["revision"])
     mobile_stacks.set_register(("update-result", "accepted"))
-    mobile_stacks.set_register(("panel", deepcopy(accepted_panel)))
+    mobile_stacks.set_register(("accepted-revision", accepted_panel["revision"]))
+    if not mobile_stacks.has_register("save-generation"):
+        mobile_stacks.set_register(("panel", deepcopy(accepted_panel)))
 
 
 def handle_when_mem_receives_host_panel():

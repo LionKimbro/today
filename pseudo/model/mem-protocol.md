@@ -19,7 +19,7 @@ Core and Mem communicate with Mobile Stacks.
 | `GET_PANEL` | `PANEL_RETURNED` | `day-id`, `panel-id` | `panel` |
 | `CREATE_PANEL` | `PANEL_CREATED_RETURNED` | `day-id`, `position-id`, `panel-type` | `panel` |
 | `DELETE_PANEL` | `PANEL_DELETED_RETURNED` | `day-id`, `panel-id` | `panel-id`, `position-ids` |
-| `UPDATE_PANEL` | `PANEL_UPDATED` | `day-id`, `panel-id`, `base-revision`, `proposed-panel` | `update-result`, `panel` |
+| `UPDATE_PANEL` | `PANEL_UPDATED` | `day-id`, `panel-id`, `base-revision`, `proposed-panel` | text accepted: `update-result`, `accepted-revision`; other accepted / conflict: `update-result`, `panel` |
 | `HOST_PANEL` | `HOSTING_RETURNED` | `day-id`, `position-id`, `panel-id` | `position-id`, `panel-id`, `unhosted-position-id` |
 | `UNHOST_PANEL` | `HOSTING_RETURNED` | `day-id`, `position-id` | `position-id`, `panel-id = null` |
 
@@ -49,8 +49,10 @@ appears elsewhere in the same tab, Mem unhosts that earlier position and
 returns it. `UNHOST_PANEL` changes only the hosting relation; the panel stays.
 
 `UPDATE_PANEL` accepts only when `base-revision` equals Mem's canonical
-revision. An accepted panel receives the next revision. A conflict returns the
-current canonical panel with `update-result = "conflict"`.
+revision. An accepted panel receives the next revision. Text saves return only
+that revision: Core already retains the proposal, and acceptance does not
+redraw Tk. Other panel updates presently return their accepted record. A
+conflict returns the current canonical panel with `update-result = "conflict"`.
 
 Panel operations carry `day-id`. Mem rejects a panel or position that does not
 belong to that day.
