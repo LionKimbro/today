@@ -2,7 +2,7 @@
 
 import tkinter
 from queue import Empty
-from tkinter import simpledialog, ttk
+from tkinter import ttk
 
 
 COLORS = {
@@ -123,15 +123,11 @@ def build_today_window():
         padx=12,
     )
     widgets["date"].pack(side="left")
-    tab_actions = tkinter.Frame(top, background=COLORS["top"])
-    tab_actions.pack(side="right")
-    make_tab_action_button(tab_actions, "+", handle_when_user_clicks_create_tab_button)
-    make_tab_action_button(tab_actions, "Rename", handle_when_user_clicks_rename_tab_button)
-    make_tab_action_button(tab_actions, "x", handle_when_user_clicks_delete_tab_button)
 
     widgets["tabs"] = ttk.Notebook(g["root"], style="Page.TNotebook")
     widgets["tabs"].grid(row=1, column=0, sticky="nsew")
     widgets["tabs"].bind("<<NotebookTabChanged>>", handle_when_user_selects_tab)
+    widgets["tabs"].bind("<Double-1>", handle_when_notebook_is_double_clicked, add="+")
 
     widgets["status"] = tkinter.Label(
         g["root"],
@@ -178,6 +174,9 @@ def handle_when_user_selects_tab(event):
     if g["selecting-tab"]:
         return
     page = event.widget.select()
+    if page == str(widgets["plus-tab"]):
+        g["outgoing-events"].put({"type": "CREATE_TAB"})
+        return
     for tab_id, tab in tab_widgets.items():
         if str(tab["page"]) == page:
             g["outgoing-events"].put({"type": "SELECT_TAB", "tab-id": tab_id})
@@ -205,56 +204,79 @@ def handle_when_user_clicks_set_row_column_count_button(row_id, column_count):
     )
 
 
-def get_selected_tab_id():
-    selected_page = widgets["tabs"].select()
+def handle_when_notebook_is_double_clicked(event):
+    notebook = widgets["tabs"]
+    if notebook.identify(event.x, event.y) != "label":
+        return
+    try:
+        page = notebook.tabs()[notebook.index(f"@{event.x},{event.y}")]
+    except tkinter.TclError:
+        return
+    if page == str(widgets["plus-tab"]):
+        return "break"
     for tab_id, tab in tab_widgets.items():
-        if str(tab["page"]) == selected_page:
-            return tab_id
-    return None
+        if page == str(tab["page"]):
+            open_tab_editor(tab_id)
+            return "break"
 
 
-def handle_when_user_clicks_create_tab_button():
-    g["outgoing-events"].put({"type": "CREATE_TAB"})
-
-
-def handle_when_user_clicks_rename_tab_button():
-    tab_id = get_selected_tab_id()
-    if tab_id is None:
-        return
-    label = simpledialog.askstring(
-        "Rename tab",
-        "Tab name:",
-        initialvalue=widgets["tabs"].tab(tab_widgets[tab_id]["page"], "text"),
-        parent=g["root"],
+def open_tab_editor(tab_id):
+    dialog = tkinter.Toplevel(g["root"])
+    dialog.title("Edit Tab")
+    dialog.configure(background=COLORS["panel"])
+    dialog.transient(g["root"])
+    dialog.resizable(False, False)
+    tkinter.Label(
+        dialog,
+        text="Tab name:",
+        background=COLORS["panel"],
+        foreground=COLORS["primary-text"],
+    ).grid(row=0, column=0, columnspan=3, sticky="w", padx=12, pady=(12, 4))
+    label = tkinter.StringVar(value=widgets["tabs"].tab(tab_widgets[tab_id]["page"], "text"))
+    entry = tkinter.Entry(
+        dialog,
+        textvariable=label,
+        background=COLORS["editor"],
+        foreground=COLORS["primary-text"],
+        insertbackground=COLORS["primary-text"],
+        relief="solid",
+        borderwidth=1,
+        highlightthickness=1,
+        highlightbackground=COLORS["border"],
+        highlightcolor=COLORS["accent-blue"],
+        width=30,
     )
-    if label is not None and label.strip():
-        g["outgoing-events"].put({"type": "RENAME_TAB", "tab-id": tab_id, "label": label.strip()})
+    entry.grid(row=1, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 12))
 
+    def handle_when_tab_rename_is_confirmed():
+        if label.get().strip():
+            g["outgoing-events"].put(
+                {"type": "RENAME_TAB", "tab-id": tab_id, "label": label.get().strip()}
+            )
+            dialog.destroy()
 
-def handle_when_user_clicks_delete_tab_button():
-    tab_id = get_selected_tab_id()
-    if tab_id is None:
-        return
+    def handle_when_tab_delete_is_confirmed():
+        g["outgoing-events"].put({"type": "DELETE_TAB", "tab-id": tab_id})
+        dialog.destroy()
+
+    rename_button = tkinter.Button(
+        dialog,
+        text="Rename",
+        command=handle_when_tab_rename_is_confirmed,
+    )
+    rename_button.grid(row=2, column=0, padx=(12, 4), pady=(0, 12))
+    delete_button = tkinter.Button(dialog, text="Delete", command=handle_when_tab_delete_is_confirmed)
+    delete_button.grid(row=2, column=1, padx=4, pady=(0, 12))
     if len(tab_widgets) == 1:
-        widgets["status"].configure(text="A day keeps at least one tab.")
-        return
-    g["outgoing-events"].put({"type": "DELETE_TAB", "tab-id": tab_id})
-
-
-def make_tab_action_button(parent, text, command):
-    tkinter.Button(
-        parent,
-        text=text,
-        background=COLORS["control"],
-        foreground=COLORS["secondary-text"],
-        activebackground=COLORS["divider"],
-        activeforeground=COLORS["primary-text"],
-        relief="flat",
-        borderwidth=0,
-        padx=7,
-        pady=3,
-        command=command,
-    ).pack(side="left", padx=(4, 0))
+        delete_button.configure(state="disabled")
+    tkinter.Button(dialog, text="Cancel", command=dialog.destroy).grid(
+        row=2, column=2, padx=(4, 12), pady=(0, 12)
+    )
+    entry.focus_set()
+    entry.selection_range(0, "end")
+    dialog.bind("<Return>", lambda event: handle_when_tab_rename_is_confirmed())
+    dialog.bind("<Escape>", lambda event: dialog.destroy())
+    dialog.grab_set()
 
 
 def handle_when_tab_canvas_resizes(event, tab_id):
@@ -495,6 +517,8 @@ def build_today_tabs(command):
         build_tab_workspace(tab, workspace)
         g["root"].after_idle(lambda tab_id=tab["tab-id"]: apply_tab_scroll_position(tab_id))
 
+    widgets["plus-tab"] = tkinter.Frame(widgets["tabs"], background=COLORS["app"])
+    widgets["tabs"].add(widgets["plus-tab"], text="+")
     select_tab(command["selected-tab-id"])
 
 
