@@ -44,6 +44,8 @@ on a real tab opens a Tk edit dialog; its controls send rename or delete events.
 
 Each tab is a scrollable surface. Settled scrolling emits
 `SET_TAB_SCROLL_POSITION`; Core's accepted position is reapplied to Tk.
+Before date navigation, Tk flushes a pending scroll save. On rebuild, Tk waits
+for a stable workspace geometry generation before restoring that fraction.
 
 The Tk shell follows the 03 cockpit palette. The row rail carries inert
 `1`/`2`/`3`/`x` controls beside the working row arrows.

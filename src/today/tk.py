@@ -187,16 +187,19 @@ def make_day_navigation_button(parent, text, command):
 
 def handle_when_user_clicks_previous_day_button():
     send_text_debounce_if_one_is_waiting()
+    send_tab_scroll_position_if_one_is_waiting()
     g["outgoing-events"].put({"type": "SELECT_PREVIOUS_DAY"})
 
 
 def handle_when_user_clicks_next_day_button():
     send_text_debounce_if_one_is_waiting()
+    send_tab_scroll_position_if_one_is_waiting()
     g["outgoing-events"].put({"type": "SELECT_NEXT_DAY"})
 
 
 def handle_when_user_clicks_today_button():
     send_text_debounce_if_one_is_waiting()
+    send_tab_scroll_position_if_one_is_waiting()
     g["outgoing-events"].put({"type": "SELECT_TODAY"})
 
 
@@ -319,8 +322,14 @@ def handle_when_tab_canvas_resizes(event, tab_id):
 
 
 def handle_when_tab_workspace_changes(event, tab_id):
-    canvas = tab_widgets[tab_id]["canvas"]
+    tab = tab_widgets.get(tab_id)
+    if tab is None:
+        return
+    tab["scroll-geometry-generation"] += 1
+    canvas = tab["canvas"]
     canvas.configure(scrollregion=canvas.bbox("all"))
+    if tab["scroll-restoration-pending"]:
+        schedule_tab_scroll_restoration(tab_id)
 
 
 def handle_when_tab_scrolls(tab_id, first, last):
@@ -352,13 +361,53 @@ def send_tab_scroll_position(tab_id):
     )
 
 
+def send_tab_scroll_position_if_one_is_waiting():
+    for tab_id, after_id in list(g["scroll-save-ids"].items()):
+        g["root"].after_cancel(after_id)
+        send_tab_scroll_position(tab_id)
+
+
 def apply_tab_scroll_position(tab_id):
     tab = tab_widgets.get(tab_id)
     if tab is None:
         return
+    tab["scroll-restoration-pending"] = True
+    schedule_tab_scroll_restoration(tab_id)
+
+
+def schedule_tab_scroll_restoration(tab_id):
+    tab = tab_widgets.get(tab_id)
+    if tab is None or tab["scroll-restoration-id"] is not None:
+        return
+    generation = tab["scroll-geometry-generation"]
+    tab["scroll-restoration-id"] = g["root"].after_idle(
+        lambda: restore_tab_scroll_position_after_layout(tab_id, generation)
+    )
+
+
+def restore_tab_scroll_position_after_layout(tab_id, generation):
+    tab = tab_widgets.get(tab_id)
+    if tab is None:
+        return
+    tab["scroll-restoration-id"] = None
+    if generation != tab["scroll-geometry-generation"]:
+        schedule_tab_scroll_restoration(tab_id)
+        return
     tab["applying-scroll-position"] = True
+    tab["canvas"].configure(scrollregion=tab["canvas"].bbox("all"))
     tab["canvas"].yview_moveto(tab["scroll-position"])
+    g["root"].after_idle(lambda: finish_tab_scroll_restoration(tab_id, generation))
+
+
+def finish_tab_scroll_restoration(tab_id, generation):
+    tab = tab_widgets.get(tab_id)
+    if tab is None:
+        return
+    if generation != tab["scroll-geometry-generation"]:
+        schedule_tab_scroll_restoration(tab_id)
+        return
     tab["applying-scroll-position"] = False
+    tab["scroll-restoration-pending"] = False
 
 
 def handle_when_user_releases_pane_sash(event, row_id):
@@ -534,6 +583,9 @@ def build_today_tabs(command):
             "scroll-window": scroll_window,
             "scroll-position": tab["scroll-position"],
             "applying-scroll-position": True,
+            "scroll-geometry-generation": 0,
+            "scroll-restoration-id": None,
+            "scroll-restoration-pending": True,
             "row-ids": [],
         }
         canvas.configure(
