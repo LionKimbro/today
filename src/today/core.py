@@ -7,7 +7,7 @@ from . import machine, mobile_stacks
 
 
 g = {
-    "today-id": None,
+    "current-day-id": None,
     "send-tk-command": None,
     "reducer-events": [],
     "effects": [],
@@ -23,7 +23,7 @@ visible_panels = {}
 
 
 def initialize_core_state():
-    g["today-id"] = date.today().isoformat()
+    g["current-day-id"] = date.today().isoformat()
 
 
 def get_position_id(row_id, column):
@@ -165,11 +165,11 @@ def make_whiteboard_snapshot(panel):
 
 def reduce_event(event):
     if event["type"] == "START":
-        return [{"type": "GET_DAY_LAYOUT", "day-id": g["today-id"]}]
+        return [{"type": "GET_DAY_LAYOUT", "day-id": g["current-day-id"]}]
 
     if event["type"] == "DAY_LAYOUT_RECEIVED":
         layout = event["layout"]
-        g["today-id"] = layout["day"]["id"]
+        g["current-day-id"] = layout["day"]["id"]
         g["selected-tab-id"] = layout["day"]["selected-tab-id"]
         g["known-panel-ids"] = layout["panel-ids"]
         tabs.clear()
@@ -291,7 +291,7 @@ def reduce_event(event):
         return [{"type": "RENDER_TODAY"}]
 
     if event["type"] == "CREATE_TAB":
-        return [{"type": "CREATE_TAB", "day-id": g["today-id"]}]
+        return [{"type": "CREATE_TAB", "day-id": g["current-day-id"]}]
 
     if event["type"] == "TAB_CREATED":
         g["selected-tab-id"] = event["day"]["selected-tab-id"]
@@ -308,7 +308,7 @@ def reduce_event(event):
         return [{"type": "SET_TAB_LABEL", "tab-id": event["tab"]["id"]}]
 
     if event["type"] == "DELETE_TAB":
-        return [{"type": "DELETE_TAB", "day-id": g["today-id"], "tab-id": event["tab-id"]}]
+        return [{"type": "DELETE_TAB", "day-id": g["current-day-id"], "tab-id": event["tab-id"]}]
 
     if event["type"] == "TAB_DELETED":
         if not event["deleted"]:
@@ -452,6 +452,7 @@ def dispatch_effect(effect):
 
     if effect["type"] == "GET_PANEL":
         mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-id", g["current-day-id"]))
         mobile_stacks.set_register(("panel-id", effect["panel-id"]))
         if "position-id" in effect:
             mobile_stacks.set_register(("position-id", effect["position-id"]))
@@ -462,6 +463,7 @@ def dispatch_effect(effect):
 
     if effect["type"] == "HOST_PANEL":
         mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-id", g["current-day-id"]))
         mobile_stacks.set_register(("position-id", effect["position-id"]))
         mobile_stacks.set_register(("panel-id", effect["panel-id"]))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "HOSTING_RETURNED"})
@@ -471,7 +473,7 @@ def dispatch_effect(effect):
 
     if effect["type"] == "SELECT_TAB":
         mobile_stacks.create_stack()
-        mobile_stacks.set_register(("day-id", g["today-id"]))
+        mobile_stacks.set_register(("day-id", g["current-day-id"]))
         mobile_stacks.set_register(("tab-id", effect["tab-id"]))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "SELECTED_TAB_RETURNED"})
         mobile_stacks.push_frame({"machine": "MEM", "entry": "SELECT_TAB"})
@@ -569,6 +571,7 @@ def dispatch_effect(effect):
 
     if effect["type"] == "UNHOST_PANEL":
         mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-id", g["current-day-id"]))
         mobile_stacks.set_register(("position-id", effect["position-id"]))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "HOSTING_RETURNED"})
         mobile_stacks.push_frame({"machine": "MEM", "entry": "UNHOST_PANEL"})
@@ -578,6 +581,7 @@ def dispatch_effect(effect):
     if effect["type"] == "UPDATE_PANEL":
         print("Reducer effect: UPDATE_PANEL", effect["panel-id"], "base-revision", effect["base-revision"])
         mobile_stacks.create_stack()
+        mobile_stacks.set_register(("day-id", g["current-day-id"]))
         mobile_stacks.set_register(("panel-id", effect["panel-id"]))
         mobile_stacks.set_register(("base-revision", effect["base-revision"]))
         mobile_stacks.set_register(("proposed-panel", deepcopy(effect["proposed-panel"])))
@@ -592,7 +596,7 @@ def dispatch_effect(effect):
         g["send-tk-command"](
             {
                 "type": "RENDER_TODAY",
-                "today-id": g["today-id"],
+                "today-id": g["current-day-id"],
                 **get_day_rendering(),
             }
         )

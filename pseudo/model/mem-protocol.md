@@ -16,10 +16,10 @@ Core and Mem communicate with Mobile Stacks.
 | `CREATE_TAB` | `TAB_CREATED_RETURNED` | `day-id` | `day`, `tab`, `row` |
 | `RENAME_TAB` | `TAB_RENAMED_RETURNED` | `tab-id`, `label` | `tab` |
 | `DELETE_TAB` | `TAB_DELETED_RETURNED` | `day-id`, `tab-id` | `day`, `tab-id`, `deleted` |
-| `GET_PANEL` | `PANEL_RETURNED` | `panel-id` | `panel` |
-| `UPDATE_PANEL` | `PANEL_UPDATED` | `panel-id`, `base-revision`, `proposed-panel` | `update-result`, `panel` |
-| `HOST_PANEL` | `HOSTING_RETURNED` | `position-id`, `panel-id` | `position-id`, `panel-id`, `unhosted-position-id` |
-| `UNHOST_PANEL` | `HOSTING_RETURNED` | `position-id` | `position-id`, `panel-id = null` |
+| `GET_PANEL` | `PANEL_RETURNED` | `day-id`, `panel-id` | `panel` |
+| `UPDATE_PANEL` | `PANEL_UPDATED` | `day-id`, `panel-id`, `base-revision`, `proposed-panel` | `update-result`, `panel` |
+| `HOST_PANEL` | `HOSTING_RETURNED` | `day-id`, `position-id`, `panel-id` | `position-id`, `panel-id`, `unhosted-position-id` |
+| `UNHOST_PANEL` | `HOSTING_RETURNED` | `day-id`, `position-id` | `position-id`, `panel-id = null` |
 
 `GET_DAY_LAYOUT` returns the selected day's tabs, rows, positions, and known
 panel ids. Core keeps an active copy for reduction and rendering.
@@ -47,3 +47,6 @@ returns it. `UNHOST_PANEL` changes only the hosting relation; the panel stays.
 `UPDATE_PANEL` accepts only when `base-revision` equals Mem's canonical
 revision. An accepted panel receives the next revision. A conflict returns the
 current canonical panel with `update-result = "conflict"`.
+
+Panel operations carry `day-id`. Mem rejects a panel or position that does not
+belong to that day.

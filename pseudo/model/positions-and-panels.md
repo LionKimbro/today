@@ -38,6 +38,7 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 | Field | Meaning |
 | --- | --- |
 | `id` | Panel identity |
+| `day-id` | Owning day identity |
 | `type` | Panel kind: currently `WHITEBOARD` |
 | `label` | Visible label |
 | `text` | Whiteboard contents |
@@ -52,7 +53,7 @@ Changing the field changes hosting. `null` means unhosted, not an empty panel.
 The position and panel record remain.
 
 A panel appears at most once in a tab. The same panel may appear in another
-tab's position.
+tab's position on its owning day.
 
 Core's snapshot may additionally hold `dirty`, `awaiting`, `edit-generation`,
 and `save-generation`. Those are working facts, never canonical Mem fields.
