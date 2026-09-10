@@ -1328,7 +1328,8 @@ def render_whiteboard_history_controls(command):
 def update_global_status_from_visible_whiteboard():
     for panels in panel_widgets.values():
         for panel in panels:
-            if panel["text"].winfo_ismapped():
+            text = panel.get("text")
+            if text is not None and text.winfo_ismapped():
                 if "history-status" in panel:
                     widgets["status"].configure(text=panel["history-status"])
                 return

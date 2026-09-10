@@ -168,6 +168,9 @@ PSEUDOCODE:
       -> update Core revision bookkeeping
       -> no Tk command
 
+  To-Do List controls request a targeted List render after acceptance;
+  ordinary Text-widget saves do not.
+
   if a newer edit-generation exists when acceptance arrives
       -> retain dirty state
       -> send that newer proposal using accepted-revision
