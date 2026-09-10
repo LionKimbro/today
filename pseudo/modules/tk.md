@@ -26,8 +26,10 @@ hosted position offers `Unhost panel`; neither control mutates Tk's model.
 Stage 7D renders each day tab as a Notebook page. User selection emits
 `SELECT_TAB`; Core's accepted `SET_SELECTED_TAB` selects the page.
 
-Stage 7E uses Tk paned windows. A released sash reports measured geometry;
-accepted row height or sash proportions are reapplied by targeted commands.
+Stage 7E uses horizontal Tk paned windows. Each document row has a resize
+handle beneath it, including the final row. A released handle or pane sash
+reports measured geometry; accepted row height or sash proportions are
+reapplied by targeted commands.
 
 Stage 7F row controls emit `MOVE_ROW`. Tk rebuilds from Core only after Mem
 accepts the structural order change. The final row alone also offers `+` for

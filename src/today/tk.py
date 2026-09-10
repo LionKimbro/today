@@ -534,19 +534,14 @@ def get_panel_accent(panel_id):
 
 
 def build_tab_workspace(command, workspace):
-    workspace.columnconfigure(0, weight=1)
-    workspace.rowconfigure(0, weight=1)
-    rows_pane = ttk.Panedwindow(workspace, orient="vertical", style="Page.TPanedwindow")
-    rows_pane.grid(row=0, column=0, sticky="nsew")
-    tab_widgets[command["tab-id"]]["rows-pane"] = rows_pane
-    rows_pane.bind(
-        "<ButtonRelease-1>",
-        lambda event, tab_id=command["tab-id"]: handle_when_user_releases_row_sash(event, tab_id),
-    )
+    rows_container = tkinter.Frame(workspace, background=COLORS["app"])
+    rows_container.pack(fill="x", expand=False)
+    tab_widgets[command["tab-id"]]["rows-container"] = rows_container
 
     for row_number, row in enumerate(command["rows"]):
-        row_frame = tkinter.Frame(rows_pane, background=COLORS["app"])
-        rows_pane.add(row_frame, weight=1)
+        row_frame = tkinter.Frame(rows_container, height=row["height"], background=COLORS["app"])
+        row_frame.pack(fill="x", expand=False)
+        row_frame.grid_propagate(False)
         tab_widgets[command["tab-id"]]["row-ids"].append(row["row-id"])
         controls = tkinter.Frame(
             row_frame,
@@ -608,14 +603,19 @@ def build_tab_workspace(command, workspace):
                     "command": lambda tab_id=command["tab-id"]: handle_when_user_clicks_add_row_button(tab_id),
                 }
             )
-        row_pane = ttk.Panedwindow(row_frame, orient="horizontal", style="Page.TPanedwindow")
+        has_multiple_positions = len(row["positions"]) > 1
+        if has_multiple_positions:
+            row_pane = ttk.Panedwindow(row_frame, orient="horizontal", style="Page.TPanedwindow")
+        else:
+            row_pane = tkinter.Frame(row_frame, background=COLORS["app"])
         row_pane.grid(row=0, column=1, sticky="nsew")
         row_frame.columnconfigure(1, weight=1)
         row_frame.rowconfigure(0, weight=1)
-        row_pane.bind(
-            "<ButtonRelease-1>",
-            lambda event, row_id=row["row-id"]: handle_when_user_releases_pane_sash(event, row_id),
-        )
+        if has_multiple_positions:
+            row_pane.bind(
+                "<ButtonRelease-1>",
+                lambda event, row_id=row["row-id"]: handle_when_user_releases_pane_sash(event, row_id),
+            )
         row_widgets[row["row-id"]] = {
             "tab-id": command["tab-id"],
             "frame": row_frame,
@@ -626,7 +626,10 @@ def build_tab_workspace(command, workspace):
 
         for column_number, position in enumerate(row["positions"]):
             card_border = tkinter.Frame(row_pane, background=COLORS["border"])
-            row_pane.add(card_border, weight=1)
+            if has_multiple_positions:
+                row_pane.add(card_border, weight=1)
+            else:
+                card_border.pack(fill="both", expand=True)
             host = ttk.Frame(
                 card_border,
                 style="Panel.TFrame",
@@ -643,6 +646,8 @@ def build_tab_workspace(command, workspace):
             else:
                 render_hosted_panel(position)
 
+        build_row_resize_handle(rows_container, row["row-id"])
+
     g["root"].after_idle(lambda tab_id=command["tab-id"]: apply_tab_geometry(tab_id))
 
 
@@ -653,23 +658,56 @@ def apply_tab_geometry(tab_id):
 
 
 def apply_tab_row_heights(tab_id):
-    rows_pane = tab_widgets[tab_id]["rows-pane"]
-    heights = [row_widgets[row_id]["height"] for row_id in tab_widgets[tab_id]["row-ids"]]
-    rows_pane.configure(height=sum(heights))
-    if rows_pane.winfo_height() <= 1 or len(heights) < 2:
-        return
-    cumulative_height = 0
-    for index, height in enumerate(heights[:-1]):
-        cumulative_height += height
-        rows_pane.sashpos(index, cumulative_height)
+    for row_id in tab_widgets[tab_id]["row-ids"]:
+        row_widgets[row_id]["frame"].configure(height=row_widgets[row_id]["height"])
 
 
 def apply_row_sash_proportions(row_id):
     pane = row_widgets[row_id]["pane"]
+    if not row_widgets[row_id]["sash-proportions"]:
+        return
     if pane.winfo_width() <= 1:
         return
     for index, proportion in enumerate(row_widgets[row_id]["sash-proportions"]):
         pane.sashpos(index, int(pane.winfo_width() * proportion))
+
+
+def build_row_resize_handle(parent, row_id):
+    resize_handle = tkinter.Frame(
+        parent,
+        height=6,
+        background=COLORS["divider"],
+        cursor="sb_v_double_arrow",
+    )
+    resize_handle.pack(fill="x", expand=False)
+    drag = {"start-y": None, "start-height": None}
+
+    def handle_when_row_resize_starts(event):
+        drag["start-y"] = event.y_root
+        drag["start-height"] = row_widgets[row_id]["frame"].winfo_height()
+
+    def handle_when_row_resize_moves(event):
+        if drag["start-y"] is None:
+            return
+        row_widgets[row_id]["frame"].configure(
+            height=max(80, drag["start-height"] + event.y_root - drag["start-y"])
+        )
+
+    def handle_when_row_resize_ends(event):
+        if drag["start-y"] is None:
+            return
+        g["outgoing-events"].put(
+            {
+                "type": "SET_ROW_HEIGHT",
+                "row-id": row_id,
+                "height": row_widgets[row_id]["frame"].winfo_height(),
+            }
+        )
+        drag["start-y"] = None
+
+    resize_handle.bind("<ButtonPress-1>", handle_when_row_resize_starts)
+    resize_handle.bind("<B1-Motion>", handle_when_row_resize_moves)
+    resize_handle.bind("<ButtonRelease-1>", handle_when_row_resize_ends)
 
 
 def clear_position_host(position_id):
