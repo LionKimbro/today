@@ -171,6 +171,9 @@ PSEUDOCODE:
   To-Do List controls request a targeted List render after acceptance;
   ordinary Text-widget saves do not.
 
+  REQUEST_TODO_LIST_VIEW renders Core's current To-Do snapshot when clean, or
+  waits for the pending accepted update when dirty.
+
   if a newer edit-generation exists when acceptance arrives
       -> retain dirty state
       -> send that newer proposal using accepted-revision

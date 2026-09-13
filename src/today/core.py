@@ -137,7 +137,15 @@ def get_canonical_panel_fields(panel):
     return {
         key: value
         for key, value in panel.items()
-        if key not in {"dirty", "awaiting", "edit-generation", "save-generation", "history-cursor"}
+        if key
+        not in {
+            "dirty",
+            "awaiting",
+            "edit-generation",
+            "save-generation",
+            "history-cursor",
+            "render-todo-list-after-accept",
+        }
     }
 
 
@@ -564,6 +572,15 @@ def reduce_event(event):
         items.insert(destination_index, item)
         return prepare_todo_items_update(event["panel-id"], items)
 
+    if event["type"] == "REQUEST_TODO_LIST_VIEW":
+        panel = visible_panels.get(event["panel-id"])
+        if panel is None or panel["type"] != "TODO":
+            return []
+        if panel["dirty"]:
+            panel["render-todo-list-after-accept"] = True
+            return []
+        return [{"type": "RENDER_TODO_VIEW", "panel-id": event["panel-id"]}]
+
     if event["type"] == "TEXT_DEBOUNCE":
         panel = visible_panels[event["panel-id"]]
         if (
@@ -598,12 +615,15 @@ def reduce_event(event):
     if event["type"] == "TEXT_PANEL_UPDATE_ACCEPTED":
         panel = visible_panels[event["panel-id"]]
         panel["revision"] = event["accepted-revision"]
+        should_render_todo_list = event.get("render-after-accept", False) or panel.pop(
+            "render-todo-list-after-accept", False
+        )
         if panel["edit-generation"] > event["save-generation"]:
             panel["save-generation"] = None
             return [
                 prepare_text_panel_update(
                     event["panel-id"],
-                    should_render_after_accept=event.get("render-after-accept", False),
+                    should_render_after_accept=should_render_todo_list,
                 )
             ]
         panel["dirty"] = False
@@ -616,7 +636,7 @@ def reduce_event(event):
             event["accepted-revision"],
         )
         effects = []
-        if event.get("render-after-accept", False):
+        if should_render_todo_list:
             effects.append({"type": "RENDER_TODO_VIEW", "panel-id": event["panel-id"]})
         return [*effects, *get_day_navigation_effect_when_ready()]
 

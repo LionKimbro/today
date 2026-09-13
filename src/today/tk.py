@@ -970,11 +970,14 @@ def send_todo_event(event):
 
 
 def handle_when_user_requests_todo_view_mode(panel_id, mode):
-    if mode == "LIST" and panel_id in g["text-debounce-ids"]:
+    if mode == "LIST":
         g["pending-todo-view-modes"][panel_id] = mode
-        g["root"].after_cancel(g["text-debounce-ids"].pop(panel_id))
-        handle_when_text_debounce_expires(panel_id)
+        if panel_id in g["text-debounce-ids"]:
+            g["root"].after_cancel(g["text-debounce-ids"].pop(panel_id))
+            handle_when_text_debounce_expires(panel_id)
+        g["outgoing-events"].put({"type": "REQUEST_TODO_LIST_VIEW", "panel-id": panel_id})
         return
+    g["pending-todo-view-modes"].pop(panel_id, None)
     g["todo-view-modes"][panel_id] = mode
     for panel in panel_widgets.get(panel_id, []):
         if "todo-command" in panel:
@@ -986,6 +989,7 @@ def render_todo_panel(command):
     position = position_widgets[command["position-id"]]
     host = position["host"]
     position["panel-id"] = command["panel-id"]
+    host.columnconfigure(0, weight=0)
     host.columnconfigure(1, weight=1)
     host.rowconfigure(1, weight=1)
     tkinter.Frame(host, background=get_panel_accent(command["panel-id"]), width=5).grid(
@@ -1173,6 +1177,7 @@ def render_hosted_panel(command):
     position = position_widgets[command["position-id"]]
     host = position["host"]
     position["panel-id"] = command["panel-id"]
+    host.columnconfigure(0, weight=0)
     host.columnconfigure(1, weight=1)
     host.rowconfigure(1, weight=1)
 
