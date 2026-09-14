@@ -334,11 +334,30 @@ def handle_when_notebook_is_double_clicked(event):
         return "break"
     for tab_id, tab in tab_widgets.items():
         if page == str(tab["page"]):
-            open_tab_editor(tab_id)
+            open_tab_editor(tab_id, event.x_root, event.y_root)
             return "break"
 
 
-def open_tab_editor(tab_id):
+def place_dialog_near_pointer(dialog, pointer_x, pointer_y, offset=12, screen_margin=12):
+    """Place a dialog beside the pointer, keeping it within the current screen."""
+    dialog.update_idletasks()
+    width = dialog.winfo_reqwidth()
+    height = dialog.winfo_reqheight()
+    screen_width = dialog.winfo_screenwidth()
+    screen_height = dialog.winfo_screenheight()
+
+    x = pointer_x + offset
+    y = pointer_y + offset
+    if x + width + screen_margin > screen_width:
+        x = pointer_x - width - offset
+    if y + height + screen_margin > screen_height:
+        y = pointer_y - height - offset
+    x = max(screen_margin, min(x, screen_width - width - screen_margin))
+    y = max(screen_margin, min(y, screen_height - height - screen_margin))
+    dialog.geometry(f"+{x}+{y}")
+
+
+def open_tab_editor(tab_id, pointer_x=None, pointer_y=None):
     dialog = tkinter.Toplevel(g["root"])
     dialog.title("Edit Tab")
     dialog.configure(background=COLORS["panel"])
@@ -394,6 +413,8 @@ def open_tab_editor(tab_id):
     entry.selection_range(0, "end")
     dialog.bind("<Return>", lambda event: handle_when_tab_rename_is_confirmed())
     dialog.bind("<Escape>", lambda event: dialog.destroy())
+    if pointer_x is not None and pointer_y is not None:
+        place_dialog_near_pointer(dialog, pointer_x, pointer_y)
     dialog.grab_set()
 
 
