@@ -1266,7 +1266,7 @@ def render_hosted_panel(command):
         controls.rowconfigure(1, weight=1)
         tkinter.Button(
             controls,
-            text="Snapshot",
+            text="Save",
             background=COLORS["accent-blue"],
             foreground=COLORS["primary-text"],
             activebackground="#347FD8",
