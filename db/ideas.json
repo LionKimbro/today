@@ -10,6 +10,61 @@
       "notes": "",
       "tags": [],
       "pinned": true
+    },
+    {
+      "guid": "f7dee503-2442-406b-9945-eb73b51abf43",
+      "title": "Panel Titles",
+      "description": "We need to be able to name the whiteboards (and broadly, panels in general).  Where it says \"Whiteboard\" right now, needs to be editable, and it will form the logical title.",
+      "status": "conceived",
+      "date-conceived": "2026-09-16",
+      "date-entered": "2026-09-16",
+      "notes": "",
+      "tags": [],
+      "pinned": true
+    },
+    {
+      "guid": "8cb5daba-4077-4619-b035-0cfb4c008743",
+      "title": "Data Panels",
+      "description": "key:value data",
+      "status": "conceived",
+      "date-conceived": "2026-09-16",
+      "date-entered": "2026-09-16",
+      "notes": "",
+      "tags": [],
+      "pinned": true
+    },
+    {
+      "guid": "c54690a4-0927-4b7d-85ce-b51aa62c90f2",
+      "title": "To-Do List -- improvement: auto-prompt",
+      "description": "auto-focus the new tkinter.Entry after adding (should be tk thread only)",
+      "status": "conceived",
+      "date-conceived": "2026-09-16",
+      "date-entered": "2026-09-16",
+      "notes": "",
+      "tags": [],
+      "pinned": true
+    },
+    {
+      "guid": "eb5f2500-fee1-4368-a130-2df2e31a98ef",
+      "title": "Whiteboards From Previous Pages",
+      "description": "Make it so that you can paste the GUID of a panel on another page, or perhaps the date of another page, so that you can load it into mem and access it?\n\nNeed to think about -- Epochs vs. Days vs. Panels; this would be a major reorganization.",
+      "status": "conceived",
+      "date-conceived": "2026-09-16",
+      "date-entered": "2026-09-16",
+      "notes": "",
+      "tags": [],
+      "pinned": true
+    },
+    {
+      "guid": "ce7f382b-a761-4bab-87ec-71b70b6e2714",
+      "title": "Import Panel System from \"today\"",
+      "description": "",
+      "status": "conceived",
+      "date-conceived": "2026-09-16",
+      "date-entered": "2026-09-16",
+      "notes": "",
+      "tags": [],
+      "pinned": true
     }
   ]
 }
