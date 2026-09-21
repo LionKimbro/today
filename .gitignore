@@ -16,3 +16,4 @@ venv/
 .zookeep/
 zookeeper-report.json
 .pydeck26/
+.context-jetpack/
