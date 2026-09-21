@@ -11,6 +11,8 @@
 | Tk → Core | `MOVE_ROW`, `tab-id`, `row-id`, `direction` | Request a row move within its tab. |
 | Tk → Core | `TEXT_CHANGED`, `panel-id`, `text` | Replace Core's working text snapshot. |
 | Tk → Core | `TEXT_DEBOUNCE`, `panel-id` | Text input rested; Core may flush it. |
+| Tk → Core | `TKMARKUP_TEXT_CHANGED`, `panel-id`, `text` | Replace TkMarkup working source. |
+| Tk → Core | `REQUEST_TKMARKUP_RENDER_VIEW`, `panel-id` | Return normalized raw source when ready. |
 | Tk → Core | `HISTORY_CURSOR_CHANGED`, `panel-id`, `history-cursor` | View HEAD or a snapshot. |
 | Tk → Core | `SNAPSHOT`, `panel-id` | Preserve the current HEAD. |
 | Tk → Core | `SHUTDOWN` | Stop Core cleanly. |
@@ -22,6 +24,7 @@
 | Core → Tk | `SET_SASH_PROPORTIONS`, `row-id`, proportions | Apply accepted pane sash positions. |
 | Core → Tk | `RENDER_WHITEBOARD_VIEW`, panel view fields | Replace the editor with the selected version. |
 | Core → Tk | `SET_WHITEBOARD_HISTORY_CURSOR`, history fields | Update slider and status only. |
+| Core → Tk | `RENDER_TKMARKUP_VIEW`, raw `panel-text` | Reparse one TkMarkup View. |
 | Core → Tk | `SHUTDOWN_COMPLETE` | Tk may close. |
 
 `<<CoreMailAvailable>>` carries no application data: drain the Tk inbox.

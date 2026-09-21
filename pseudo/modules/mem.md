@@ -26,5 +26,7 @@ Stage 7C seeds `whiteboard-a`, `whiteboard-b`, and unhosted `whiteboard-c`.
 
 Whiteboard records also canonically carry newest-first snapshot history.
 
+`CREATE_PANEL` also accepts `TKMARKUP`, with label `TkMarkup` and empty text.
+
 `UPDATE_PANEL` accepts only a matching base revision, then returns the accepted
 canonical panel with its incremented revision.

@@ -1,0 +1,390 @@
+TKMARKUP
+========
+
+
+PURPOSE
+-------
+
+TkMarkup is a small markup language for a new TkMarkup panel type.
+
+The existing To-Do panel is good at presenting and manipulating a flat logical
+checklist, but it cannot divide that checklist into sections or place explanatory
+text around it.  TkMarkup keeps the useful checklist interaction and places it
+inside a small document language.
+
+TkMarkup panels are a new panel type.  They do not replace or migrate existing
+To-Do panels at this stage.  The two panel types coexist.
+
+The language is intentionally small.  Its first version has:
+
+* headings;
+* ordinary paragraphs;
+* four-state checklist items;
+* prompt points for adding checklist items; and
+* persistent identities for checklist items and prompt points.
+
+The canonical form of a TkMarkup panel is text.  The rendered Tk widgets are a
+presentation of that text and are never the authoritative document.
+
+
+EXAMPLE
+-------
+
+    # Before lunch
+
+    These are the things that need attention before leaving.
+    This source line is part of the same paragraph.
+
+    [ ] Call Alice {550e8400-e29b-41d4-a716-446655440000}
+    [>] Print the packet {44a5ac91-bac9-4570-a62f-56575c54566b}
+    [-] Waiting for the signed form {b80c24c4-eef5-48e5-a276-569279ef7099}
+    [x] Pack the samples {dd040e52-8e33-46c9-9857-58e4816e6ead}
+    >>> {342083fa-782d-4323-bc61-0f9d147044ec}
+
+
+SOURCE ELEMENTS
+---------------
+
+The initial language recognizes four kinds of nonblank element.
+
+
+Heading
+~~~~~~~
+
+A line beginning with `# ` is a heading.
+
+    # Heading text
+
+There is one heading level initially.  `## ` has no special meaning in this
+version.  A heading ends any paragraph currently being accumulated and is
+rendered as its own larger, bold label.
+
+
+Ordinary text and paragraphs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A nonblank line that is not another recognized element is an ordinary text
+line.  Consecutive ordinary lines form one paragraph.  The lines are joined
+with spaces for display, and each paragraph becomes one distinct
+`tkinter.Label`.
+
+A blank line ends a paragraph.  A heading, checklist item, or prompt point also
+ends a paragraph.  Blank lines do not themselves create visible labels.
+
+Unrecognized syntax remains ordinary text.  This keeps the language tolerant
+and leaves room for future constructs without making today's documents fail.
+
+
+Checklist items
+~~~~~~~~~~~~~~~
+
+A checklist item begins at the start of a source line with one of these
+markers:
+
+    [ ] Not started {GUID}        renders with  🟩
+    [>] In progress {GUID}        renders with  ▶️
+    [x] Complete {GUID}           renders with  ✅
+    [-] Cannot process {GUID}     renders with  ⛔
+
+The title may be empty.  This is valid, even though it is not especially
+useful:
+
+    [ ] {550e8400-e29b-41d4-a716-446655440000}
+
+The ordinary click cycle is:
+
+    [ ] -> [>] -> [x] -> [ ]
+
+`[-]` is outside that cycle.  Its state indicator is noninteractive, so it
+cannot be entered or left by clicking.  The user changes it in Edit mode.
+Moving and deleting the item remain structural operations and are still
+available.
+
+The valid GUID suffix is syntax, not part of the displayed title.  View mode
+hides it.  Edit mode displays the literal source, including GUIDs.
+
+
+Prompt points
+~~~~~~~~~~~~~
+
+A prompt point is written:
+
+    >>> {GUID}
+
+In View mode it becomes the familiar checklist-addition row: a
+`tkinter.Entry` and its submission control.  The source marker and GUID are not
+displayed.
+
+A panel may contain more than one prompt point.  Its GUID identifies the exact
+place to amend.
+
+Submitting a prompt:
+
+* trims the submitted text;
+* ignores an empty result;
+* creates a new `[ ]` item with a new GUID; and
+* inserts that item immediately before the identified `>>>` source line.
+
+For example:
+
+    [ ] Existing item {ITEM-GUID}
+    >>> {PROMPT-GUID}
+
+becomes:
+
+    [ ] Existing item {ITEM-GUID}
+    [ ] Newly entered text {NEW-ITEM-GUID}
+    >>> {PROMPT-GUID}
+
+
+IDENTITY AND NORMALIZATION
+--------------------------
+
+Checklist items and prompt points have persistent GUIDs.  Headings and
+paragraphs do not.
+
+A generated GUID is a lowercase UUID4 written with hyphens inside braces:
+
+    {550e8400-e29b-41d4-a716-446655440000}
+
+Only a valid GUID in the final suffix position is identity syntax.  Braces
+elsewhere remain text.
+
+Core owns normalization.  Tk does not mint, repair, or replace identities.
+
+Normalization performs these interventions:
+
+* A recognized checklist item without a valid trailing GUID receives one.
+* A prompt point without a valid trailing GUID receives one.
+* If the same GUID appears more than once in one TkMarkup panel, the first
+  occurrence in source order keeps it and every later occurrence receives a
+  newly generated GUID.
+* A malformed apparent GUID is preserved rather than silently corrected.
+
+For a checklist item, a malformed trailing brace expression remains part of
+the visible title and a valid identity is appended:
+
+    [ ] Repair printer {not-a-guid}
+
+normalizes to:
+
+    [ ] Repair printer {not-a-guid} {new-valid-guid}
+
+For a prompt point, malformed trailing source is likewise preserved in Edit
+mode and a valid final GUID is appended.
+
+Normalization must be idempotent:
+
+    normalize(normalize(text)) == normalize(text)
+
+GUIDs are never added or repaired while the user is typing in Edit mode.
+Normalization occurs at these boundaries:
+
+* when Core freshly receives a TkMarkup panel from Mem; and
+* when the user switches that panel from Edit mode to View mode.
+
+If normalization changes the text, Core persists the changed canonical panel
+through the ordinary revisioned panel-update mechanism.
+
+
+VIEW AND EDIT MODES
+-------------------
+
+View mode is the default presentation.  It parses the raw TkMarkup text on the
+Tk thread and creates headings, paragraph labels, checklist rows, and prompt
+entries.
+
+Edit mode is an ordinary text editor over the canonical source.  Existing
+GUIDs are visible there.  Editing sends text changes through the ordinary
+global debounce mechanism.  It does not normalize the text.
+
+Switching from Edit to View is a commit boundary:
+
+1. Tk flushes any pending text debounce.
+2. Tk requests the TkMarkup View presentation.
+3. Core normalizes its current working text.
+4. Core persists any outstanding text or normalization change.
+5. Core returns normalized raw TkMarkup text for View rendering.
+
+Core does not send a tree or a language of Tkinter rendering instructions.
+It sends raw TkMarkup text.  Tk parses that text into temporary Tk-local data
+and renders it as it sees fit.
+
+
+LOCAL CHECKLIST BLOCKS
+----------------------
+
+A local checklist block is a maximal consecutive run of checklist-item source
+lines.  All four item states participate in the block.
+
+A blank line, paragraph line, heading, or prompt point ends a block.
+
+An item may move only by swapping with an adjacent checklist item in its own
+block.  It may not cross a block boundary.
+
+Tk does not render an Up button for the first item in a block or a Down button
+for the last item.  Tk can infer those boundaries from its local parse.
+
+Core must independently enforce the same boundary when it receives a move
+request.  Missing controls are presentation, not authorization.
+
+
+TEXT MUTATIONS
+--------------
+
+Semantic checklist operations are targeted by GUID rather than line number or
+rendered index.
+
+Core applies mutations to the canonical text while preserving unrelated
+source text.
+
+* Cycle changes only the recognized state marker.
+* Delete removes only the identified checklist source line.
+* Move swaps the identified line with an adjacent item line in its local
+  block.
+* Add inserts one new item line immediately before the identified prompt line.
+
+A request naming a missing or stale GUID has no effect.  A request naming the
+wrong kind of element has no effect.  `[-]` does not cycle.
+
+These operations must not rebuild the document from only the recognized
+elements.  Headings, paragraphs, blank lines, unknown text, malformed text,
+and final-newline behavior must not be discarded as a side effect of changing
+one checklist item.
+
+
+TK THREAD / CORE THREAD PROTOCOL
+--------------------------------
+
+The thread seam continues to carry semantic events and declarative commands.
+No Tk objects cross it.
+
+Tk owns widgets, View/Edit presentation state, its temporary parse, and the
+choice of which valid controls to display.
+
+Core owns the working panel snapshot, normalization, identity-aware text
+mutation, revisioned persistence requests, and the decision about which
+canonical text is returned.
+
+
+Tk to Core
+~~~~~~~~~~
+
+Add an item at a particular prompt point:
+
+    {
+        "type": "TODO_ADD_ITEM",
+        "panel-id": panel_id,
+        "text": "<text of the addition>",
+        "prompt-point": "<prompt-guid>"
+    }
+
+Delete an item:
+
+    {
+        "type": "TODO_DELETE_ITEM",
+        "panel-id": panel_id,
+        "item-uuid": "<item-guid>"
+    }
+
+Cycle an ordinary item state:
+
+    {
+        "type": "TODO_CYCLE_ITEM_STATE",
+        "panel-id": panel_id,
+        "item-uuid": "<item-guid>"
+    }
+
+Move an item within its local block:
+
+    {
+        "type": "TODO_MOVE_ITEM",
+        "panel-id": panel_id,
+        "item-uuid": "<item-guid>",
+        "direction": -1
+    }
+
+`direction` is `-1` for Up and `1` for Down.
+
+The `TODO_*` names remain because these are semantic operations on embedded
+to-do items, even though the containing panel is TkMarkup.
+
+Edit text changed:
+
+    {
+        "type": "TKMARKUP_TEXT_CHANGED",
+        "panel-id": panel_id,
+        "text": "<complete editor text>"
+    }
+
+The generic debounce message is unchanged:
+
+    {
+        "type": "TEXT_DEBOUNCE",
+        "panel-id": panel_id
+    }
+
+Request View mode after flushing any pending debounce:
+
+    {
+        "type": "REQUEST_TKMARKUP_RENDER_VIEW",
+        "panel-id": panel_id
+    }
+
+`UNHOST_PANEL` and `DELETE_PANEL` remain unchanged.
+
+
+Core to Tk
+~~~~~~~~~~
+
+The ordinary whole-workspace and targeted-position render commands may contain
+a TkMarkup panel.  Its panel rendering contains `panel-text`, the raw
+normalized TkMarkup text.  It does not contain a pre-parsed item list.
+
+A targeted View refresh uses:
+
+    {
+        "type": "RENDER_TKMARKUP_VIEW",
+        "panel-id": panel_id,
+        "panel-text": "<normalized raw TkMarkup text>"
+    }
+
+Tk reparses and rerenders the named panel from that raw text.
+
+Semantic item changes request this targeted refresh after Mem accepts the
+revisioned panel update.  An Edit-to-View request also waits for outstanding
+text and normalization updates before Core sends the View refresh.
+
+The existing `RENDER_TODAY`, `RENDER_POSITION`, `SET_PANEL_LABEL`, shutdown,
+hosting, and deletion commands retain their existing meanings.
+
+
+PROTOCOL DIFFERENCES FROM TO-DO PANELS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The existing To-Do panel remains unchanged.
+
+For a TkMarkup panel:
+
+* item identity is `item-uuid`, not `item-index`;
+* adding includes `prompt-point`, because a document may contain several
+  addition locations;
+* text editing sends `TKMARKUP_TEXT_CHANGED`, not `TODO_TEXT_CHANGED`;
+* returning to View sends `REQUEST_TKMARKUP_RENDER_VIEW`, not
+  `REQUEST_TODO_LIST_VIEW`;
+* Core returns raw text, not `todo-items`; and
+* Tk parses block boundaries and omits impossible movement controls.
+
+`TEXT_DEBOUNCE`, `UNHOST_PANEL`, and `DELETE_PANEL` are not panel-language
+mechanisms and remain unchanged.
+
+
+INITIAL LIMITS
+--------------
+
+This specification does not migrate existing To-Do panels.
+
+It does not define additional heading levels, links, images, embedded panels,
+or arbitrary widgets.  Such elements may be considered later.  Unknown text
+remaining ordinary text is the compatibility policy for now.
+

@@ -39,7 +39,7 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 | --- | --- |
 | `id` | Panel identity |
 | `day-id` | Owning day identity |
-| `type` | `WHITEBOARD`, `TODO`, `JOURNAL`, or top-slot-only `ORIENTATION` |
+| `type` | `WHITEBOARD`, `TODO`, `TKMARKUP`, `JOURNAL`, or top-slot-only `ORIENTATION` |
 | `label` | Visible label |
 | `text` | Panel text |
 | `history` | Whiteboard snapshots only |
@@ -77,6 +77,12 @@ semantic item events; Text editing uses the ordinary one-second debounce.
 Either path becomes the normal revisioned `UPDATE_PANEL` request to Mem.
 
 Journal remains a plain text panel for now.
+
+## TkMarkup panels
+
+TkMarkup is separate text-owned panel type. Core normalizes item/prompt GUIDs
+at fresh-load and Edit-to-View boundaries; Tk renders raw normalized text.
+It does not replace the existing To-Do panel. See `docs/raw/0400__tkmarkup.txt`.
 
 Deleting a panel is distinct from unhosting: it removes the day-owned record
 and every ordinary hosting reference to it.

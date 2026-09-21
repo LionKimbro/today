@@ -22,6 +22,10 @@ controls send semantic item events; Text sends `TODO_TEXT_CHANGED` and uses the
 same debounce. Returning to List flushes a pending text debounce first, then
 asks Core for its current canonical List rendering.
 
+A TkMarkup panel has Tk-local `View` / `Edit` selection. View parses raw
+normalized source locally; Edit sends `TKMARKUP_TEXT_CHANGED` through the same
+debounce. Returning to View flushes then waits for Core's raw-text rendering.
+
 Tk renders the history slider and Snapshot button. The visible version's status
 uses the global status bar; Tk does not interpret history.
 
@@ -34,7 +38,7 @@ panel controls; an unhosted position visibly says it is empty.
 Stage 7C gives an empty position a chooser of eligible existing panels. A
 hosted position offers `Unhost panel`; neither control mutates Tk's model.
 
-An empty position also offers `+ Whiteboard`, `+ To-Do`, and `+ Journal`.
+An empty position also offers `+ Whiteboard`, `+ To-Do`, `+ TkMarkup`, and `+ Journal`.
 Each sends `CREATE_AND_HOST_PANEL`; Tk does not mint or host a panel itself.
 
 Normal `x` unhosts. Control-clicking `x` opens a Tk-local delete confirmation;

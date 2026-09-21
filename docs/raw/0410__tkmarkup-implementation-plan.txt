@@ -1,0 +1,278 @@
+TKMARKUP IMPLEMENTATION PLAN
+============================
+
+
+READ FIRST
+----------
+
+* `docs/raw/0400__tkmarkup.txt`
+* all current files beneath `pseudo/`
+* the referenced Lion style cards and Bounded Agentic Development method
+
+The brevity of `pseudo/` is deliberate.  Keep its changes brief.  It states
+bounded intent; it does not duplicate the language specification.
+
+Render this plan in small bounded changes.  Do not migrate or redesign the
+existing To-Do panel.
+
+
+1. DECLARE THE TKMARKUP MACHINE
+-------------------------------
+
+Add `src/today/tkmarkup.py` and a short matching
+`pseudo/modules/tkmarkup.md`.
+
+OWNS:
+  TkMarkup lexical recognition
+  parsing raw text into temporary element records
+  idempotent GUID normalization
+  line-preserving UUID-targeted mutations
+
+DOES NOT OWN:
+  panels or revisions
+  Core state
+  Mem state
+  Tk widgets or View/Edit mode
+  thread communication
+
+Use functions and ordinary dictionaries/lists.  Create no classes.
+
+The module should provide the small operations actually needed by Core and
+Tk.  Do not build a generic parser framework, renderer tree, plugin system, or
+future markup architecture.
+
+Cover at least:
+
+* parse headings, paragraphs, four item markers, prompt points, and blanks;
+* remove a valid final GUID from the displayed item title;
+* join consecutive ordinary lines into one paragraph display string;
+* normalize missing, malformed, and duplicate identities;
+* preserve malformed text and unrelated source;
+* add immediately before a named prompt;
+* delete by item UUID;
+* cycle by item UUID, excluding `[-]`;
+* move by item UUID without crossing a local block boundary; and
+* ignore stale, wrong-kind, and invalid requests.
+
+Generated identities are lowercase hyphenated UUID4 strings.  Normalization
+must be idempotent.
+
+
+2. ADD THE PANEL TYPE WITHOUT MIGRATION
+---------------------------------------
+
+Mem:
+
+* Accept `TKMARKUP` in `CREATE_PANEL`.
+* Mint its ordinary panel identity.
+* Give it the visible label `TkMarkup` and empty text.
+* Keep the existing day-bundle format and ordinary panel record shape.
+
+Core:
+
+* Treat `TKMARKUP` as an ordinary eligible hosted panel type.
+* Include raw `panel-text` in whole-workspace and position renderings.
+* Do not include `todo-items` for TkMarkup.
+
+Tk:
+
+* Offer `+ TkMarkup` in an empty position.
+* Route `TKMARKUP` to its own panel builder.
+* Default a newly rendered TkMarkup panel to View mode.
+
+Leave `TODO` creation, persistence, rendering, and messages working as they do
+now.
+
+
+3. NORMALIZE AT CORE BOUNDARIES
+-------------------------------
+
+When Core receives a fresh `TKMARKUP` panel from Mem:
+
+* install its working snapshot;
+* normalize its text;
+* when changed, mark the working snapshot dirty and send the ordinary
+  revisioned `UPDATE_PANEL`; and
+* render the normalized working text.
+
+Do not add a new Core/Mem operation.  Use the existing revision,
+edit-generation, save-generation, and dirty-state machinery.
+
+When Core receives `REQUEST_TKMARKUP_RENDER_VIEW`:
+
+* normalize the current working text;
+* persist a normalization change through the same update machinery;
+* if any panel update remains outstanding, remember that View rendering is
+  required after the newest accepted generation; and
+* otherwise emit `RENDER_TKMARKUP_VIEW` immediately.
+
+Never normalize in response to `TKMARKUP_TEXT_CHANGED` itself.  Typing must
+not inject or repair GUIDs.
+
+
+4. RETAIN THE GLOBAL TEXT-DEBOUNCE MACHINE
+------------------------------------------
+
+Tk Edit mode sends:
+
+    TKMARKUP_TEXT_CHANGED(panel-id, complete text)
+
+The mixed-case spelling above is explanatory only.
+
+Schedule the existing per-panel one-second debounce.  Its expiry still sends
+the generic `TEXT_DEBOUNCE` event.
+
+When the user requests View mode:
+
+* cancel and immediately flush that panel's pending debounce, if any;
+* then enqueue `REQUEST_TKMARKUP_RENDER_VIEW`;
+* rely on the existing FIFO Tk-to-Core queue; and
+* do not locally switch to View until Core returns the requested rendering.
+
+Do not make `TEXT_DEBOUNCE` specific to TkMarkup.
+
+
+5. IMPLEMENT CORE'S SEMANTIC ITEM EVENTS
+----------------------------------------
+
+Extend the existing event branches by panel type.  Preserve their current
+To-Do behavior and index-based To-Do payloads.  For a `TKMARKUP` panel, handle:
+
+    TODO_ADD_ITEM
+        panel-id, text, prompt-point
+
+    TODO_DELETE_ITEM
+        panel-id, item-uuid
+
+    TODO_CYCLE_ITEM_STATE
+        panel-id, item-uuid
+
+    TODO_MOVE_ITEM
+        panel-id, item-uuid, direction
+
+For Add, trim text and ignore an empty result.
+
+For every successful mutation:
+
+* replace only Core's working `panel["text"]`;
+* advance the edit generation and mark it dirty;
+* send the ordinary revisioned `UPDATE_PANEL`; and
+* request `RENDER_TKMARKUP_VIEW` after the newest accepted generation.
+
+Core validates UUID existence, element kind, cycle legality, direction, and
+local block bounds.  Stale or invalid requests do nothing.
+
+Do not reuse the existing To-Do `get_todo_items()` / `get_todo_text()`
+reconstruction path for TkMarkup.
+
+
+6. PARSE AND RENDER LOCALLY IN TK
+---------------------------------
+
+The Core-to-Tk payload is raw normalized `panel-text`.
+
+On the Tk thread, parse that text locally and render:
+
+* one larger bold Label for a heading;
+* one wrapping Label for each paragraph;
+* one checklist row for each item; and
+* one Entry/add row for each prompt point.
+
+Render item states as:
+
+    [ ]  🟩
+    [>]  ▶️
+    [x]  ✅
+    [-]  ⛔
+
+The first three state indicators send `TODO_CYCLE_ITEM_STATE`.  The `[-]`
+indicator sends nothing.  Item movement and deletion remain available.
+
+Infer local block edges from the Tk-local parse.  Omit Up on the first item
+and Down on the last item of each block.
+
+Prompt submission sends `TODO_ADD_ITEM` with that prompt's GUID.  Trim and
+empty rejection also occur in Core; Tk may avoid sending an obviously empty
+request as a convenience.
+
+Keep View/Edit selection in Tk-local state, just as To-Do List/Text selection
+is local today.  Do not send parsed elements, widgets, or movement permissions
+across the thread seam.
+
+
+7. UPDATE THE EXISTING PSEUDO SKETCHES
+--------------------------------------
+
+Make only the brief boundary changes needed in:
+
+* `pseudo/model/positions-and-panels.md`
+* `pseudo/model/tk-core-messages.md`
+* `pseudo/modules/core.md`
+* `pseudo/modules/mem.md`
+* `pseudo/modules/tk.md`
+
+Add the new short `pseudo/modules/tkmarkup.md` named in Step 1.
+
+Do not copy `0400__tkmarkup.txt` into `pseudo/`.  Point to the durable
+specification where useful.
+
+
+8. TEST THE LANGUAGE BEFORE THE GUI DETAILS
+-------------------------------------------
+
+Add focused non-GUI tests for:
+
+* every recognized element;
+* one Label-sized paragraph from consecutive ordinary lines;
+* paragraph boundaries at blanks, headings, items, and prompts;
+* empty checklist titles;
+* valid GUID recognition and hidden title suffix;
+* missing GUID insertion;
+* malformed GUID preservation plus new identity;
+* duplicate replacement after the first occurrence;
+* duplicate detection across items and prompt points;
+* normalization idempotence;
+* prompt-targeted insertion;
+* trimmed and empty Add behavior;
+* UUID-targeted delete and cycle;
+* the three-state click cycle;
+* non-cycling `[-]`;
+* in-block movement;
+* refusal to cross all block-boundary kinds;
+* stale UUID no-ops; and
+* preservation of unrelated text, blank lines, and final-newline behavior.
+
+Add Core reducer/protocol tests for:
+
+* fresh-load normalization and revisioned persistence;
+* `TKMARKUP_TEXT_CHANGED` using ordinary debounce state;
+* debounce-before-View ordering;
+* View waiting for the newest accepted generation;
+* raw-text-only `RENDER_TKMARKUP_VIEW`; and
+* UUID message fields replacing item indexes for TkMarkup.
+
+Keep the existing 15 machine tests passing.  Existing To-Do behavior is a
+regression boundary.
+
+
+9. VERIFY THE COMPLETE SMALL MACHINE
+------------------------------------
+
+Run the unit suite.
+
+Manually verify in a real Tk session:
+
+* create and host a TkMarkup panel;
+* enter headings, two paragraphs, all four item states, and two prompts;
+* switch Edit -> View and observe GUID insertion only at that boundary;
+* return to Edit and observe the stored GUIDs;
+* add at each prompt and verify insertion at the correct source location;
+* cycle, move, and delete by UUID;
+* verify arrows stop at local block boundaries;
+* verify `[-]` does not cycle;
+* navigate away and back; and
+* restart and confirm normalized identities persist.
+
+Stop if implementation reveals a responsibility change or language decision
+not settled by `0400__tkmarkup.txt`.  Record the dilemma rather than silently
+expanding the design.

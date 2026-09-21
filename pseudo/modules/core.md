@@ -196,6 +196,13 @@ PSEUDOCODE:
   TODO_TEXT_CHANGED uses the normal text debounce.
 
 
+  == TkMarkup panels ==
+
+  Fresh panels and Edit -> View normalize through `tkmarkup`, then use ordinary
+  revisioned UPDATE_PANEL. UUID semantic mutations request raw-text View after
+  acceptance; typing uses the global TEXT_DEBOUNCE.
+
+
   == Stage 6 Whiteboard history ==
 
   HISTORY_CURSOR_CHANGED changes only the viewed version.

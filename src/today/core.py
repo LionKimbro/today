@@ -4,7 +4,7 @@ import re
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 
-from . import machine, mobile_stacks
+from . import machine, mobile_stacks, tkmarkup
 
 
 g = {
@@ -80,7 +80,7 @@ def get_available_panel_ids(position_id):
         panel_id
         for panel_id in g["known-panel-ids"]
         if panel_id not in hosted_panel_ids
-        and visible_panels[panel_id]["type"] in {"WHITEBOARD", "TODO", "JOURNAL"}
+        and visible_panels[panel_id]["type"] in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP"}
     ]
 
 
@@ -145,6 +145,7 @@ def get_canonical_panel_fields(panel):
             "save-generation",
             "history-cursor",
             "render-todo-list-after-accept",
+            "render-tkmarkup-view-after-accept",
         }
     }
 
@@ -235,6 +236,16 @@ def prepare_todo_items_update(panel_id, items):
     return [prepare_text_panel_update(panel_id, should_render_after_accept=True)]
 
 
+def prepare_tkmarkup_update(panel_id, should_render_after_accept=False):
+    panel = visible_panels[panel_id]
+    panel["dirty"] = True
+    panel["awaiting"] = "MEM_UPDATE"
+    panel["edit-generation"] += 1
+    if should_render_after_accept:
+        panel["render-tkmarkup-view-after-accept"] = True
+    return prepare_text_panel_update(panel_id)
+
+
 def make_whiteboard_snapshot(panel):
     panel["history"].insert(
         0,
@@ -283,12 +294,19 @@ def reduce_event(event):
 
     if event["type"] == "PANEL_RECEIVED":
         install_panel_snapshot(event["panel"])
+        effects = []
+        if visible_panels[event["panel-id"]].get("type") == "TKMARKUP":
+            panel = visible_panels[event["panel-id"]]
+            normalized_text = tkmarkup.normalize_text(panel["text"])
+            if normalized_text != panel["text"]:
+                panel["text"] = normalized_text
+                effects.append(prepare_tkmarkup_update(event["panel-id"]))
         print("Core reducer: PANEL_RECEIVED", event["panel-id"])
         if event["panel-id"] in g["pending-initial-panel-ids"]:
             g["pending-initial-panel-ids"].remove(event["panel-id"])
         if not g["pending-initial-panel-ids"]:
-            return [{"type": "RENDER_TODAY"}]
-        return []
+            effects.append({"type": "RENDER_TODAY"})
+        return effects
 
     if event["type"] == "HOST_PANEL":
         return [
@@ -535,8 +553,24 @@ def reduce_event(event):
         panel["edit-generation"] += 1
         return []
 
+    if event["type"] == "TKMARKUP_TEXT_CHANGED":
+        panel = visible_panels.get(event["panel-id"])
+        if panel is None or panel["type"] != "TKMARKUP":
+            return []
+        panel["text"] = event["text"]
+        panel["dirty"] = True
+        panel["awaiting"] = "TEXT_DEBOUNCE"
+        panel["edit-generation"] += 1
+        return []
+
     if event["type"] == "TODO_ADD_ITEM":
         panel = visible_panels.get(event["panel-id"])
+        if panel is not None and panel["type"] == "TKMARKUP":
+            text = tkmarkup.add_item(panel["text"], event.get("prompt-point"), event["text"])
+            if text == panel["text"]:
+                return []
+            panel["text"] = text
+            return [prepare_tkmarkup_update(event["panel-id"], should_render_after_accept=True)]
         text = event["text"].strip()
         if panel is None or panel["type"] != "TODO" or not text:
             return []
@@ -546,6 +580,12 @@ def reduce_event(event):
 
     if event["type"] == "TODO_DELETE_ITEM":
         panel = visible_panels.get(event["panel-id"])
+        if panel is not None and panel["type"] == "TKMARKUP":
+            text = tkmarkup.delete_item(panel["text"], event.get("item-uuid"))
+            if text == panel["text"]:
+                return []
+            panel["text"] = text
+            return [prepare_tkmarkup_update(event["panel-id"], should_render_after_accept=True)]
         if panel is None or panel["type"] != "TODO":
             return []
         items = get_todo_items(panel)
@@ -556,6 +596,12 @@ def reduce_event(event):
 
     if event["type"] == "TODO_CYCLE_ITEM_STATE":
         panel = visible_panels.get(event["panel-id"])
+        if panel is not None and panel["type"] == "TKMARKUP":
+            text = tkmarkup.cycle_item(panel["text"], event.get("item-uuid"))
+            if text == panel["text"]:
+                return []
+            panel["text"] = text
+            return [prepare_tkmarkup_update(event["panel-id"], should_render_after_accept=True)]
         if panel is None or panel["type"] != "TODO":
             return []
         items = get_todo_items(panel)
@@ -567,6 +613,12 @@ def reduce_event(event):
 
     if event["type"] == "TODO_MOVE_ITEM":
         panel = visible_panels.get(event["panel-id"])
+        if panel is not None and panel["type"] == "TKMARKUP":
+            text = tkmarkup.move_item(panel["text"], event.get("item-uuid"), event.get("direction"))
+            if text == panel["text"]:
+                return []
+            panel["text"] = text
+            return [prepare_tkmarkup_update(event["panel-id"], should_render_after_accept=True)]
         if panel is None or panel["type"] != "TODO":
             return []
         items = get_todo_items(panel)
@@ -586,6 +638,19 @@ def reduce_event(event):
             panel["render-todo-list-after-accept"] = True
             return []
         return [{"type": "RENDER_TODO_VIEW", "panel-id": event["panel-id"]}]
+
+    if event["type"] == "REQUEST_TKMARKUP_RENDER_VIEW":
+        panel = visible_panels.get(event["panel-id"])
+        if panel is None or panel["type"] != "TKMARKUP":
+            return []
+        normalized_text = tkmarkup.normalize_text(panel["text"])
+        if normalized_text != panel["text"]:
+            panel["text"] = normalized_text
+            return [prepare_tkmarkup_update(event["panel-id"], should_render_after_accept=True)]
+        if panel["dirty"]:
+            panel["render-tkmarkup-view-after-accept"] = True
+            return []
+        return [{"type": "RENDER_TKMARKUP_VIEW", "panel-id": event["panel-id"]}]
 
     if event["type"] == "TEXT_DEBOUNCE":
         panel = visible_panels[event["panel-id"]]
@@ -629,6 +694,7 @@ def reduce_event(event):
         should_render_todo_list = event.get("render-after-accept", False) or panel.pop(
             "render-todo-list-after-accept", False
         )
+        should_render_tkmarkup_view = panel.pop("render-tkmarkup-view-after-accept", False)
         should_render_whiteboard_history = event.get(
             "render-whiteboard-history-after-accept", False
         )
@@ -653,6 +719,8 @@ def reduce_event(event):
         effects = []
         if should_render_todo_list:
             effects.append({"type": "RENDER_TODO_VIEW", "panel-id": event["panel-id"]})
+        if should_render_tkmarkup_view:
+            effects.append({"type": "RENDER_TKMARKUP_VIEW", "panel-id": event["panel-id"]})
         if should_render_whiteboard_history:
             effects.append(
                 {"type": "SET_WHITEBOARD_HISTORY_CURSOR", "panel-id": event["panel-id"]}
@@ -878,6 +946,15 @@ def dispatch_effect(effect):
                 "todo-items": get_todo_items(panel),
             }
         )
+        return
+
+    if effect["type"] == "RENDER_TKMARKUP_VIEW":
+        panel = visible_panels[effect["panel-id"]]
+        g["send-tk-command"]({
+            "type": "RENDER_TKMARKUP_VIEW",
+            "panel-id": panel["id"],
+            "panel-text": panel["text"],
+        })
         return
 
     if effect["type"] == "RENDER_POSITION":

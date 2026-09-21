@@ -5,6 +5,8 @@ from queue import Empty
 from time import monotonic
 from tkinter import ttk
 
+from . import tkmarkup
+
 
 COLORS = {
     "app": "#081522",
@@ -37,6 +39,9 @@ g = {
     "delete-confirmation-suppressed-until": 0.0,
     "todo-view-modes": {},
     "pending-todo-view-modes": {},
+    "tkmarkup-view-modes": {},
+    "pending-tkmarkup-view-modes": {},
+    "tkmarkup-prompt-focus": {},
     "outgoing-events": None,
     "incoming-commands": None,
 }
@@ -617,6 +622,10 @@ def realize_core_command(command):
         render_todo_view(command)
         return
 
+    if command["type"] == "RENDER_TKMARKUP_VIEW":
+        render_tkmarkup_view(command)
+        return
+
     if command["type"] == "SET_WHITEBOARD_HISTORY_CURSOR":
         render_whiteboard_history_controls(command)
         return
@@ -967,7 +976,7 @@ def render_empty_position(command):
     )
     creation_buttons = tkinter.Frame(host, background=COLORS["panel"])
     creation_buttons.grid(row=1, column=0, sticky="w", pady=(12, 0))
-    for panel_type, label in (("WHITEBOARD", "+ Whiteboard"), ("TODO", "+ To-Do"), ("JOURNAL", "+ Journal")):
+    for panel_type, label in (("WHITEBOARD", "+ Whiteboard"), ("TODO", "+ To-Do"), ("TKMARKUP", "+ TkMarkup"), ("JOURNAL", "+ Journal")):
         tkinter.Button(
             creation_buttons,
             text=label,
@@ -1191,9 +1200,127 @@ def render_todo_view(command):
             render_todo_presentation(panel, command)
 
 
+def handle_when_user_requests_tkmarkup_view_mode(panel_id, mode):
+    if mode == "VIEW":
+        g["pending-tkmarkup-view-modes"][panel_id] = mode
+        if panel_id in g["text-debounce-ids"]:
+            g["root"].after_cancel(g["text-debounce-ids"].pop(panel_id))
+            handle_when_text_debounce_expires(panel_id)
+        g["outgoing-events"].put({"type": "REQUEST_TKMARKUP_RENDER_VIEW", "panel-id": panel_id})
+        return
+    g["pending-tkmarkup-view-modes"].pop(panel_id, None)
+    g["tkmarkup-view-modes"][panel_id] = "EDIT"
+    for panel in panel_widgets.get(panel_id, []):
+        render_tkmarkup_presentation(panel, panel["tkmarkup-command"])
+
+
+def render_tkmarkup_panel(command):
+    position = position_widgets[command["position-id"]]
+    host = position["host"]
+    position["panel-id"] = command["panel-id"]
+    host.columnconfigure(1, weight=1)
+    host.rowconfigure(1, weight=1)
+    tkinter.Frame(host, background=get_panel_accent(command["panel-id"]), width=5).grid(row=0, column=0, sticky="ns", padx=(0, 12))
+    label = ttk.Label(host, text=command["panel-label"], style="PanelTitle.TLabel")
+    label.grid(row=0, column=1, sticky="w")
+    modes = tkinter.Frame(host, background=COLORS["panel"])
+    modes.grid(row=0, column=2, sticky="e")
+    buttons = {}
+    for mode in ("VIEW", "EDIT"):
+        button = tkinter.Button(modes, text=mode.title(), command=lambda mode=mode, panel_id=command["panel-id"]: handle_when_user_requests_tkmarkup_view_mode(panel_id, mode))
+        button.pack(side="left", padx=(0, 3))
+        buttons[mode] = button
+    tkinter.Button(host, text="x", width=2, command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(position_id)).grid(row=0, column=3)
+    content = tkinter.Frame(host, background=COLORS["panel"])
+    content.grid(row=1, column=1, columnspan=3, sticky="nsew", pady=(14, 0))
+    panel = {"label": label, "tkmarkup-content": content, "tkmarkup-command": command, "tkmarkup-mode-buttons": buttons}
+    position["panel-widgets"] = panel
+    panel_widgets.setdefault(command["panel-id"], []).append(panel)
+    g["tkmarkup-view-modes"].setdefault(command["panel-id"], "VIEW")
+    render_tkmarkup_presentation(panel, command)
+
+
+def render_tkmarkup_presentation(panel, command):
+    content = panel["tkmarkup-content"]
+    for child in content.winfo_children():
+        child.destroy()
+    panel["tkmarkup-command"] = command
+    panel_id = command["panel-id"]
+    mode = g["tkmarkup-view-modes"].get(panel_id, "VIEW")
+    for name, button in panel["tkmarkup-mode-buttons"].items():
+        button.configure(background=COLORS["accent-blue"] if name == mode else COLORS["control"])
+    if mode == "EDIT":
+        text = tkinter.Text(content, height=10, wrap="word", background=COLORS["editor"], foreground=COLORS["primary-text"], insertbackground=COLORS["primary-text"])
+        text.pack(fill="both", expand=True)
+        g["rendering-text"] = True
+        text.insert("1.0", command["panel-text"])
+        text.edit_modified(False)
+        g["root"].after_idle(handle_after_rendering_whiteboard_text)
+        text.bind("<<Modified>>", lambda event, panel_id=panel_id: handle_when_text_widget_changes(event, panel_id, "TKMARKUP_TEXT_CHANGED"))
+        panel["text"] = text
+        return
+    panel.pop("text", None)
+    scrollbar = tkinter.Scrollbar(content, orient="vertical")
+    scrollbar.pack(side="right", fill="y")
+    canvas = tkinter.Canvas(
+        content,
+        background=COLORS["panel"],
+        highlightthickness=0,
+        yscrollcommand=scrollbar.set,
+    )
+    canvas.pack(side="left", fill="both", expand=True)
+    view = tkinter.Frame(canvas, background=COLORS["panel"])
+    window_id = canvas.create_window((0, 0), window=view, anchor="nw")
+    scrollbar.configure(command=canvas.yview)
+    view.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
+    canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
+    elements = tkmarkup.parse_text(command["panel-text"])
+    for index, element in enumerate(elements):
+        if element["type"] == "HEADING":
+            tkinter.Label(view, text=element["text"], font=("TkDefaultFont", 12, "bold"), background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w").pack(fill="x", pady=(6, 2))
+        elif element["type"] == "PARAGRAPH":
+            tkinter.Label(view, text=element["text"], background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w", justify="left", wraplength=650).pack(fill="x", pady=(2, 6))
+        elif element["type"] == "ITEM":
+            row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=2)
+            marker = {"[ ": "🟩", "[>": "▶️", "[x": "✅", "[-": "⛔"}[element["marker"]]
+            if element["marker"] == "[-":
+                tkinter.Label(row, text=f"{marker}  {element['title']}", background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w").pack(side="left", fill="x", expand=True, padx=2)
+            else:
+                tkinter.Button(row, text=f"{marker}  {element['title']}", anchor="w", command=lambda guid=element["guid"], panel_id=panel_id: send_todo_event({"type": "TODO_CYCLE_ITEM_STATE", "panel-id": panel_id, "item-uuid": guid})).pack(side="left", fill="x", expand=True)
+            for title, direction in (("↑", -1), ("↓", 1)):
+                adjacent = index + direction < len(elements) and elements[index + direction].get("type") == "ITEM"
+                if adjacent:
+                    tkinter.Button(row, text=title, width=2, command=lambda guid=element["guid"], direction=direction, panel_id=panel_id: send_todo_event({"type": "TODO_MOVE_ITEM", "panel-id": panel_id, "item-uuid": guid, "direction": direction})).pack(side="left")
+            tkinter.Button(row, text="x", width=2, command=lambda guid=element["guid"], panel_id=panel_id: send_todo_event({"type": "TODO_DELETE_ITEM", "panel-id": panel_id, "item-uuid": guid})).pack(side="left")
+        elif element["type"] == "PROMPT":
+            row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=(5, 2)); entry = tkinter.Entry(row); entry.pack(side="left", fill="x", expand=True)
+            def add_item(event=None, entry=entry, guid=element["guid"], panel_id=panel_id):
+                value = entry.get()
+                if value.strip():
+                    entry.delete(0, "end")
+                    g["tkmarkup-prompt-focus"][panel_id] = guid
+                    send_todo_event({"type": "TODO_ADD_ITEM", "panel-id": panel_id, "text": value, "prompt-point": guid})
+            entry.bind("<Return>", add_item); tkinter.Button(row, text="Add", command=add_item).pack(side="left", padx=(6, 0))
+            if g["tkmarkup-prompt-focus"].get(panel_id) == element["guid"]:
+                g["tkmarkup-prompt-focus"].pop(panel_id)
+                entry.after_idle(entry.focus_set)
+
+
+def render_tkmarkup_view(command):
+    panel_id = command["panel-id"]
+    if panel_id in g["pending-tkmarkup-view-modes"]:
+        g["tkmarkup-view-modes"][panel_id] = g["pending-tkmarkup-view-modes"].pop(panel_id)
+    for panel in panel_widgets.get(panel_id, []):
+        render_tkmarkup_presentation(panel, command)
+
+
 def render_hosted_panel(command):
     if command["panel-type"] == "TODO":
         render_todo_panel(command)
+        return
+    if command["panel-type"] == "TKMARKUP":
+        render_tkmarkup_panel(command)
         return
     position = position_widgets[command["position-id"]]
     host = position["host"]
