@@ -164,7 +164,11 @@ def request_day_navigation(day_id):
     return get_day_navigation_effect_when_ready()
 
 
-def prepare_text_panel_update(panel_id, should_render_after_accept=False):
+def prepare_text_panel_update(
+    panel_id,
+    should_render_after_accept=False,
+    should_render_whiteboard_history_after_accept=False,
+):
     panel = visible_panels[panel_id]
     panel["awaiting"] = "MEM_UPDATE"
     panel["save-generation"] = panel["edit-generation"]
@@ -177,6 +181,8 @@ def prepare_text_panel_update(panel_id, should_render_after_accept=False):
     }
     if should_render_after_accept:
         effect["render-after-accept"] = True
+    if should_render_whiteboard_history_after_accept:
+        effect["render-whiteboard-history-after-accept"] = True
     return effect
 
 
@@ -605,7 +611,12 @@ def reduce_event(event):
         panel["dirty"] = True
         panel["awaiting"] = "MEM_UPDATE"
         panel["edit-generation"] += 1
-        return [prepare_text_panel_update(event["panel-id"])]
+        return [
+            prepare_text_panel_update(
+                event["panel-id"],
+                should_render_whiteboard_history_after_accept=True,
+            )
+        ]
 
     if event["type"] == "PANEL_UPDATED":
         install_panel_snapshot(event["panel"])
@@ -618,12 +629,16 @@ def reduce_event(event):
         should_render_todo_list = event.get("render-after-accept", False) or panel.pop(
             "render-todo-list-after-accept", False
         )
+        should_render_whiteboard_history = event.get(
+            "render-whiteboard-history-after-accept", False
+        )
         if panel["edit-generation"] > event["save-generation"]:
             panel["save-generation"] = None
             return [
                 prepare_text_panel_update(
                     event["panel-id"],
                     should_render_after_accept=should_render_todo_list,
+                    should_render_whiteboard_history_after_accept=should_render_whiteboard_history,
                 )
             ]
         panel["dirty"] = False
@@ -638,6 +653,10 @@ def reduce_event(event):
         effects = []
         if should_render_todo_list:
             effects.append({"type": "RENDER_TODO_VIEW", "panel-id": event["panel-id"]})
+        if should_render_whiteboard_history:
+            effects.append(
+                {"type": "SET_WHITEBOARD_HISTORY_CURSOR", "panel-id": event["panel-id"]}
+            )
         return [*effects, *get_day_navigation_effect_when_ready()]
 
     if event["type"] == "PANEL_UPDATE_CONFLICT":
@@ -818,6 +837,8 @@ def dispatch_effect(effect):
             mobile_stacks.set_register(("save-generation", effect["save-generation"]))
         if effect.get("render-after-accept", False):
             mobile_stacks.set_register(("render-after-accept", True))
+        if effect.get("render-whiteboard-history-after-accept", False):
+            mobile_stacks.set_register(("render-whiteboard-history-after-accept", True))
         mobile_stacks.push_frame({"machine": "CORE", "entry": "PANEL_UPDATED"})
         mobile_stacks.push_frame({"machine": "MEM", "entry": "UPDATE_PANEL"})
         machine.route_current_stack()
@@ -1094,6 +1115,9 @@ def handle_when_core_receives_panel_update():
                     "accepted-revision": accepted_revision,
                     "save-generation": mobile_stacks.get_register("save-generation"),
                     "render-after-accept": mobile_stacks.has_register("render-after-accept"),
+                    "render-whiteboard-history-after-accept": mobile_stacks.has_register(
+                        "render-whiteboard-history-after-accept"
+                    ),
                 }
             )
             return

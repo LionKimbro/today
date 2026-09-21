@@ -171,6 +171,9 @@ PSEUDOCODE:
   To-Do List controls request a targeted List render after acceptance;
   ordinary Text-widget saves do not.
 
+  Snapshot requests a targeted history-control refresh after acceptance; it
+  does not rewrite the Whiteboard editor text.
+
   REQUEST_TODO_LIST_VIEW renders Core's current To-Do snapshot when clean, or
   waits for the pending accepted update when dirty.
 
