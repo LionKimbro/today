@@ -31,7 +31,7 @@
       "date-entered": "2026-09-16",
       "notes": "",
       "tags": [],
-      "pinned": true
+      "pinned": false
     },
     {
       "guid": "c54690a4-0927-4b7d-85ce-b51aa62c90f2",
@@ -42,7 +42,7 @@
       "date-entered": "2026-09-16",
       "notes": "",
       "tags": [],
-      "pinned": true
+      "pinned": false
     },
     {
       "guid": "eb5f2500-fee1-4368-a130-2df2e31a98ef",
@@ -53,17 +53,32 @@
       "date-entered": "2026-09-16",
       "notes": "",
       "tags": [],
-      "pinned": true
+      "pinned": false
     },
     {
       "guid": "ce7f382b-a761-4bab-87ec-71b70b6e2714",
-      "title": "Import Panel System from \"today\"",
+      "title": "Import Panel System from pydeck26",
       "description": "",
-      "status": "conceived",
+      "status": "implemented",
       "date-conceived": "2026-09-16",
       "date-entered": "2026-09-16",
       "notes": "",
       "tags": [],
+      "pinned": false
+    },
+    {
+      "guid": "54428273-5448-4fae-bdf8-7747d6df9491",
+      "title": "TkMarkup",
+      "description": "a wiki-like syntax for pane contents -- use for todos and other things",
+      "status": "conceived",
+      "date-conceived": "2026-09-20",
+      "date-entered": "2026-09-21",
+      "notes": "conversation:\nhttps://chatgpt.com/c/6ab16f0d-ffa8-83e8-bac6-740c28682191",
+      "tags": [
+        "wiki",
+        "markup",
+        "todo"
+      ],
       "pinned": true
     }
   ]
