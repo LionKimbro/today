@@ -70,7 +70,7 @@
       "guid": "54428273-5448-4fae-bdf8-7747d6df9491",
       "title": "TkMarkup",
       "description": "a wiki-like syntax for pane contents -- use for todos and other things",
-      "status": "conceived",
+      "status": "implemented",
       "date-conceived": "2026-09-20",
       "date-entered": "2026-09-21",
       "notes": "conversation:\nhttps://chatgpt.com/c/6ab16f0d-ffa8-83e8-bac6-740c28682191",
@@ -78,6 +78,22 @@
         "wiki",
         "markup",
         "todo"
+      ],
+      "pinned": false
+    },
+    {
+      "guid": "e68c185a-5d6f-49b7-9628-8bcb40e7b933",
+      "title": "Pane: Images",
+      "description": "Be able to have a panel that is an image captured from the clipboard.",
+      "status": "conceived",
+      "date-conceived": "2026-09-22",
+      "date-entered": "2026-09-22",
+      "notes": "",
+      "tags": [
+        "panel",
+        "pane",
+        "image",
+        "clipboard"
       ],
       "pinned": true
     }
