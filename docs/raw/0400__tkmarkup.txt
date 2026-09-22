@@ -45,7 +45,7 @@ EXAMPLE
 SOURCE ELEMENTS
 ---------------
 
-The initial language recognizes five kinds of nonblank element.
+The initial language recognizes seven kinds of nonblank element.
 
 
 Heading
@@ -149,6 +149,23 @@ title, and a copy control. Clicking the title opens the URL in the operating
 system's default browser; clicking copy places only the URL on the clipboard.
 Like checklist items and prompt points, a recognized link receives a persistent
 GUID through Core normalization.
+
+
+Files and folders
+~~~~~~~~~~~~~~~~~
+
+Files and folders are written:
+
+    [file] Title for the file [C:/work/report.txt] {GUID}
+    [folder] Title for the folder [C:/work/reports/] {GUID}
+
+The title is optional. When it is omitted, View displays the path itself:
+
+    [file] [C:/work/report.txt] {GUID}
+
+View renders a file or folder icon and opens its path through the operating
+system's default handler when clicked. Recognized files and folders receive
+persistent GUIDs through Core normalization.
 
 
 IDENTITY AND NORMALIZATION

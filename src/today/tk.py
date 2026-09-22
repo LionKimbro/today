@@ -2,6 +2,7 @@
 
 import tkinter
 import webbrowser
+import os
 from queue import Empty
 from time import monotonic
 from tkinter import ttk
@@ -97,6 +98,10 @@ def copy_tkmarkup_link(url):
     g["root"].clipboard_clear()
     g["root"].clipboard_append(url)
     widgets["status"].configure(text=f'Copied "{url}" to the clipboard.')
+
+
+def open_tkmarkup_path(path):
+    os.startfile(path)
 
 
 def build_today_window():
@@ -1414,6 +1419,28 @@ def render_tkmarkup_presentation(panel, command):
             copy_icon.create_rectangle(5, 4, 13, 13, outline="#8ED0FF")
             copy_icon.create_rectangle(8, 7, 16, 16, outline="#8ED0FF")
             copy_icon.bind("<ButtonRelease-1>", lambda event, url=element["url"]: copy_tkmarkup_link(url))
+        elif element["type"] in {"FILE", "FOLDER"}:
+            row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=2)
+            icon = tkinter.Canvas(row, width=20, height=20, background=COLORS["control"], highlightthickness=0)
+            icon.pack(side="left", padx=(2, 0), pady=1)
+            if element["type"] == "FILE":
+                icon.create_polygon(5, 3, 12, 3, 16, 7, 16, 17, 5, 17, fill="#AFC8E8", outline="")
+                icon.create_line(12, 3, 12, 7, 16, 7, fill=COLORS["control"])
+            else:
+                icon.create_polygon(3, 6, 8, 6, 10, 4, 17, 4, 17, 16, 3, 16, fill="#E8C86A", outline="")
+            path_label = tkinter.Label(
+                row,
+                text=element["title"] or element["path"],
+                background=COLORS["control"],
+                foreground="#F5FBFF",
+                anchor="w",
+                relief="solid",
+                borderwidth=1,
+                padx=6,
+                pady=3,
+            )
+            path_label.pack(side="left", fill="x", expand=True)
+            path_label.bind("<ButtonRelease-1>", lambda event, path=element["path"]: open_tkmarkup_path(path))
         elif element["type"] == "PROMPT":
             row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=(5, 2))
             entry = tkinter.Entry(

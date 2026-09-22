@@ -23,6 +23,14 @@ class TkMarkupTests(unittest.TestCase):
         self.assertEqual(link["url"], "https://example.com")
         self.assertTrue(tkmarkup.is_valid_guid(link["guid"]))
 
+    def test_file_and_folder_accept_omitted_titles(self):
+        source = "[file] Report [C:/work/report.txt]\n[folder] [C:/work/]"
+        elements = tkmarkup.parse_text(tkmarkup.normalize_text(source))
+        self.assertEqual([element["type"] for element in elements], ["FILE", "FOLDER"])
+        self.assertEqual(elements[0]["title"], "Report")
+        self.assertEqual(elements[1]["title"], "")
+        self.assertEqual(elements[1]["path"], "C:/work/")
+
     def test_normalization_is_idempotent_and_preserves_malformed_text(self):
         source = "[ ] Repair {bad}\n>>> " + GUID_A + "\n[x] Again " + GUID_A
         normalized = tkmarkup.normalize_text(source)
