@@ -30,6 +30,8 @@ A TkMarkup panel has Tk-local `View` / `Edit` selection. View parses raw
 normalized source locally; Edit sends `TKMARKUP_TEXT_CHANGED` through the same
 debounce. Returning to View flushes then waits for Core's raw-text rendering.
 Tk owns external link/path opening and clipboard copying from its local view.
+Double-clicking noninteractive TkMarkup View content enters Edit; Ctrl+Enter
+in its editor follows the ordinary Edit-to-View boundary.
 
 Tk renders the history slider and Snapshot button. The visible version's status
 uses the global status bar; Tk does not interpret history.

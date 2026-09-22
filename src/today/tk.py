@@ -1245,6 +1245,16 @@ def handle_when_user_requests_tkmarkup_view_mode(panel_id, mode):
         render_tkmarkup_presentation(panel, panel["tkmarkup-command"])
 
 
+def handle_when_user_double_clicks_tkmarkup_view(event, panel_id):
+    handle_when_user_requests_tkmarkup_view_mode(panel_id, "EDIT")
+    return "break"
+
+
+def handle_when_user_uses_control_enter_in_tkmarkup_editor(event, panel_id):
+    handle_when_user_requests_tkmarkup_view_mode(panel_id, "VIEW")
+    return "break"
+
+
 def render_tkmarkup_panel(command):
     position = position_widgets[command["position-id"]]
     host = position["host"]
@@ -1292,6 +1302,12 @@ def render_tkmarkup_presentation(panel, command):
         text.edit_modified(False)
         g["root"].after_idle(handle_after_rendering_whiteboard_text)
         text.bind("<<Modified>>", lambda event, panel_id=panel_id: handle_when_text_widget_changes(event, panel_id, "TKMARKUP_TEXT_CHANGED"))
+        text.bind(
+            "<Control-Return>",
+            lambda event, panel_id=panel_id: handle_when_user_uses_control_enter_in_tkmarkup_editor(
+                event, panel_id
+            ),
+        )
         panel["text"] = text
         return
     panel.pop("text", None)
@@ -1310,12 +1326,20 @@ def render_tkmarkup_presentation(panel, command):
     view.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
     canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
+    view.bind(
+        "<Double-Button-1>",
+        lambda event, panel_id=panel_id: handle_when_user_double_clicks_tkmarkup_view(event, panel_id),
+    )
     elements = tkmarkup.parse_text(command["panel-text"])
     for index, element in enumerate(elements):
         if element["type"] == "HEADING":
-            tkinter.Label(view, text=element["text"], font=("TkDefaultFont", 12, "bold"), background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w").pack(fill="x", pady=(6, 2))
+            heading = tkinter.Label(view, text=element["text"], font=("TkDefaultFont", 12, "bold"), background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w")
+            heading.pack(fill="x", pady=(6, 2))
+            heading.bind("<Double-Button-1>", lambda event, panel_id=panel_id: handle_when_user_double_clicks_tkmarkup_view(event, panel_id))
         elif element["type"] == "PARAGRAPH":
-            tkinter.Label(view, text=element["text"], background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w", justify="left", wraplength=650).pack(fill="x", pady=(2, 6))
+            paragraph = tkinter.Label(view, text=element["text"], background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w", justify="left", wraplength=650)
+            paragraph.pack(fill="x", pady=(2, 6))
+            paragraph.bind("<Double-Button-1>", lambda event, panel_id=panel_id: handle_when_user_double_clicks_tkmarkup_view(event, panel_id))
         elif element["type"] == "ITEM":
             row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=2)
             icon = tkinter.Canvas(
@@ -1355,6 +1379,8 @@ def render_tkmarkup_presentation(panel, command):
                 )
                 icon.bind("<ButtonRelease-1>", cycle_event)
                 item_label.bind("<ButtonRelease-1>", cycle_event)
+            else:
+                item_label.bind("<Double-Button-1>", lambda event, panel_id=panel_id: handle_when_user_double_clicks_tkmarkup_view(event, panel_id))
             for direction in (-1, 1):
                 control = tkinter.Canvas(
                     row,
