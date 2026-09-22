@@ -134,6 +134,20 @@ def build_today_window():
     style.configure("Panel.TFrame", background=COLORS["panel"])
     style.configure("Panel.TLabel", background=COLORS["panel"], foreground=COLORS["primary-text"])
     style.configure(
+        "TkMarkup.Vertical.TScrollbar",
+        background=COLORS["control"],
+        troughcolor=COLORS["editor"],
+        bordercolor=COLORS["border"],
+        arrowcolor=COLORS["secondary-text"],
+        lightcolor=COLORS["control"],
+        darkcolor=COLORS["control"],
+    )
+    style.map(
+        "TkMarkup.Vertical.TScrollbar",
+        background=[("active", COLORS["divider"])],
+        arrowcolor=[("active", COLORS["primary-text"])],
+    )
+    style.configure(
         "PanelTitle.TLabel",
         background=COLORS["panel"],
         foreground=COLORS["primary-text"],
@@ -1272,7 +1286,7 @@ def render_tkmarkup_panel(command):
     unhost_button = create_widget("unhost-button")
     unhost_button.grid(row=0, column=3)
     content = tkinter.Frame(host, background=COLORS["panel"])
-    content.grid(row=1, column=1, columnspan=3, sticky="nsew", pady=(14, 0))
+    content.grid(row=1, column=0, columnspan=4, sticky="nsew", pady=(14, 0))
     panel = {"label": label, "tkmarkup-content": content, "tkmarkup-command": command, "tkmarkup-mode-button": mode_button}
     position["panel-widgets"] = panel
     panel_widgets.setdefault(command["panel-id"], []).append(panel)
@@ -1311,7 +1325,11 @@ def render_tkmarkup_presentation(panel, command):
         panel["text"] = text
         return
     panel.pop("text", None)
-    scrollbar = tkinter.Scrollbar(content, orient="vertical")
+    scrollbar = ttk.Scrollbar(
+        content,
+        orient="vertical",
+        style="TkMarkup.Vertical.TScrollbar",
+    )
     scrollbar.pack(side="right", fill="y")
     canvas = tkinter.Canvas(
         content,
