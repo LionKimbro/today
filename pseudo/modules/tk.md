@@ -6,6 +6,10 @@ READS: plain Core commands.
 
 DOES NOT OWN: Today state or decisions.
 
+`panel_widget_reg` establishes the active panel host and identities while a
+panel builder runs. `create_widget("unhost-button")` owns the shared unhost
+and Control-click delete bindings; panel builders only place the result.
+
 The hosted-panel combobox sends `HOST_PANEL`; it does not swap panels itself.
 
 The top-left `<`, date, `今`, and `>` controls send day-selection events.

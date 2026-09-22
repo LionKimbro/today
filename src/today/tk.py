@@ -51,6 +51,41 @@ tab_widgets = {}
 row_widgets = {}
 panel_widgets = {}
 position_widgets = {}
+panel_widget_reg = {"host": None, "position-id": None, "panel-id": None}
+
+
+def set_panel_widget_context(command, host):
+    panel_widget_reg["host"] = host
+    panel_widget_reg["position-id"] = command["position-id"]
+    panel_widget_reg["panel-id"] = command["panel-id"]
+
+
+def create_widget(widget_name):
+    if widget_name != "unhost-button":
+        raise RuntimeError(f"unknown Tk widget {widget_name}")
+    button = tkinter.Button(
+        panel_widget_reg["host"],
+        text="x",
+        background=COLORS["control"],
+        foreground=COLORS["secondary-text"],
+        activebackground=COLORS["divider"],
+        activeforeground=COLORS["primary-text"],
+        relief="flat",
+        borderwidth=0,
+        width=2,
+        padx=2,
+        pady=3,
+        command=lambda position_id=panel_widget_reg["position-id"]: handle_when_user_clicks_unhost_panel_button(
+            position_id
+        ),
+    )
+    button.bind(
+        "<Control-ButtonRelease-1>",
+        lambda event, panel_id=panel_widget_reg["panel-id"]: handle_when_user_control_clicks_delete_panel(
+            event, panel_id
+        ),
+    )
+    return button
 
 
 def build_today_window():
@@ -1018,6 +1053,7 @@ def handle_when_user_requests_todo_view_mode(panel_id, mode):
 def render_todo_panel(command):
     position = position_widgets[command["position-id"]]
     host = position["host"]
+    set_panel_widget_context(command, host)
     position["panel-id"] = command["panel-id"]
     host.columnconfigure(0, weight=0)
     host.columnconfigure(1, weight=1)
@@ -1048,29 +1084,8 @@ def render_todo_panel(command):
         )
         button.pack(side="left", padx=(0, 3))
         mode_buttons[mode] = button
-    unhost_button = tkinter.Button(
-        host,
-        text="x",
-        background=COLORS["control"],
-        foreground=COLORS["secondary-text"],
-        activebackground=COLORS["divider"],
-        activeforeground=COLORS["primary-text"],
-        relief="flat",
-        borderwidth=0,
-        width=2,
-        padx=2,
-        pady=3,
-        command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(
-            position_id
-        ),
-    )
+    unhost_button = create_widget("unhost-button")
     unhost_button.grid(row=0, column=3, sticky="e")
-    unhost_button.bind(
-        "<Control-ButtonRelease-1>",
-        lambda event, panel_id=command["panel-id"]: handle_when_user_control_clicks_delete_panel(
-            event, panel_id
-        ),
-    )
     content = tkinter.Frame(host, background=COLORS["panel"])
     content.grid(row=1, column=1, columnspan=3, sticky="nsew", pady=(14, 0))
     panel = {
@@ -1217,6 +1232,7 @@ def handle_when_user_requests_tkmarkup_view_mode(panel_id, mode):
 def render_tkmarkup_panel(command):
     position = position_widgets[command["position-id"]]
     host = position["host"]
+    set_panel_widget_context(command, host)
     position["panel-id"] = command["panel-id"]
     host.columnconfigure(1, weight=1)
     host.rowconfigure(1, weight=1)
@@ -1227,7 +1243,8 @@ def render_tkmarkup_panel(command):
     modes.grid(row=0, column=2, sticky="e")
     mode_button = tkinter.Button(modes, text="Edit")
     mode_button.pack(side="left", padx=(0, 3))
-    tkinter.Button(host, text="x", width=2, command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(position_id)).grid(row=0, column=3)
+    unhost_button = create_widget("unhost-button")
+    unhost_button.grid(row=0, column=3)
     content = tkinter.Frame(host, background=COLORS["panel"])
     content.grid(row=1, column=1, columnspan=3, sticky="nsew", pady=(14, 0))
     panel = {"label": label, "tkmarkup-content": content, "tkmarkup-command": command, "tkmarkup-mode-button": mode_button}
@@ -1405,6 +1422,7 @@ def render_hosted_panel(command):
         return
     position = position_widgets[command["position-id"]]
     host = position["host"]
+    set_panel_widget_context(command, host)
     position["panel-id"] = command["panel-id"]
     host.columnconfigure(0, weight=0)
     host.columnconfigure(1, weight=1)
@@ -1417,29 +1435,8 @@ def render_hosted_panel(command):
     ).grid(row=0, column=0, sticky="ns", padx=(0, 12))
     label = ttk.Label(host, text=command["panel-label"], style="PanelTitle.TLabel")
     label.grid(row=0, column=1, sticky="w")
-    unhost_button = tkinter.Button(
-        host,
-        text="x",
-        background=COLORS["control"],
-        foreground=COLORS["secondary-text"],
-        activebackground=COLORS["divider"],
-        activeforeground=COLORS["primary-text"],
-        relief="flat",
-        borderwidth=0,
-        width=2,
-        padx=2,
-        pady=3,
-        command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(
-            position_id
-        ),
-    )
+    unhost_button = create_widget("unhost-button")
     unhost_button.grid(row=0, column=2, sticky="e")
-    unhost_button.bind(
-        "<Control-ButtonRelease-1>",
-        lambda event, panel_id=command["panel-id"]: handle_when_user_control_clicks_delete_panel(
-            event, panel_id
-        ),
-    )
     is_whiteboard = command["panel-type"] == "WHITEBOARD"
     text = tkinter.Text(
         host,
