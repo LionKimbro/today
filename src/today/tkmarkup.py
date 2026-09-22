@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 ITEM_PATTERN = re.compile(r"^(\[ |\[>|\[x|\[-)\](?: ?)(.*)$")
 PROMPT_PATTERN = re.compile(r"^>>>(?: ?)(.*)$")
+LINK_PATTERN = re.compile(r"^\[link\]\s*(.*?)\s+\[(https?://[^\]\s]+)\](.*)$")
 GUID_PATTERN = re.compile(r"\s*(\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\})$")
 
 
@@ -49,6 +50,7 @@ def parse_text(text):
     for line_index, line in enumerate(lines):
         item = ITEM_PATTERN.match(line)
         prompt = PROMPT_PATTERN.match(line)
+        link = LINK_PATTERN.match(line)
         if line == "":
             finish_paragraph()
             elements.append({"type": "BLANK", "line-index": line_index})
@@ -69,6 +71,13 @@ def parse_text(text):
                 "type": "PROMPT", "line-index": line_index,
                 "trailing": trailing, "guid": guid,
             })
+        elif link is not None:
+            finish_paragraph()
+            trailing, guid = split_final_guid(link.group(3))
+            elements.append({
+                "type": "LINK", "line-index": line_index, "title": link.group(1),
+                "url": link.group(2), "trailing": trailing, "guid": guid,
+            })
         else:
             if not paragraph_lines:
                 paragraph_start = line_index
@@ -81,7 +90,7 @@ def normalize_text(text):
     lines = text.splitlines(keepends=True)
     seen = set()
     for element in parse_text(text):
-        if element["type"] not in {"ITEM", "PROMPT"}:
+        if element["type"] not in {"ITEM", "PROMPT", "LINK"}:
             continue
         line_index = element["line-index"]
         guid = element["guid"]

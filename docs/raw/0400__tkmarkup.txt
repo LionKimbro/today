@@ -45,7 +45,7 @@ EXAMPLE
 SOURCE ELEMENTS
 ---------------
 
-The initial language recognizes four kinds of nonblank element.
+The initial language recognizes five kinds of nonblank element.
 
 
 Heading
@@ -135,6 +135,20 @@ becomes:
     [ ] Existing item {ITEM-GUID}
     [ ] Newly entered text {NEW-ITEM-GUID}
     >>> {PROMPT-GUID}
+
+
+Links
+~~~~~
+
+A link is written:
+
+    [link] Title of the link [https://example.com/path] {GUID}
+
+It is a standalone element. View mode renders a light-blue star, a clickable
+title, and a copy control. Clicking the title opens the URL in the operating
+system's default browser; clicking copy places only the URL on the clipboard.
+Like checklist items and prompt points, a recognized link receives a persistent
+GUID through Core normalization.
 
 
 IDENTITY AND NORMALIZATION
@@ -387,4 +401,3 @@ This specification does not migrate existing To-Do panels.
 It does not define additional heading levels, links, images, embedded panels,
 or arbitrary widgets.  Such elements may be considered later.  Unknown text
 remaining ordinary text is the compatibility policy for now.
-

@@ -1,6 +1,7 @@
 """The Tk machine: widgets, bindings, events, and Core commands."""
 
 import tkinter
+import webbrowser
 from queue import Empty
 from time import monotonic
 from tkinter import ttk
@@ -86,6 +87,16 @@ def create_widget(widget_name):
         ),
     )
     return button
+
+
+def open_tkmarkup_link(url):
+    webbrowser.open(url)
+
+
+def copy_tkmarkup_link(url):
+    g["root"].clipboard_clear()
+    g["root"].clipboard_append(url)
+    widgets["status"].configure(text=f'Copied "{url}" to the clipboard.')
 
 
 def build_today_window():
@@ -1376,6 +1387,33 @@ def render_tkmarkup_presentation(panel, command):
                     {"type": "TODO_DELETE_ITEM", "panel-id": panel_id, "item-uuid": guid}
                 ),
             )
+        elif element["type"] == "LINK":
+            row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=2)
+            icon = tkinter.Canvas(row, width=20, height=20, background=COLORS["control"], highlightthickness=0)
+            icon.pack(side="left", padx=(2, 0), pady=1)
+            icon.create_polygon(
+                10, 3, 12, 7, 17, 7, 13, 11, 15, 17,
+                10, 14, 5, 17, 7, 11, 3, 7, 8, 7,
+                fill="#8ED0FF", outline="",
+            )
+            link_label = tkinter.Label(
+                row,
+                text=element["title"],
+                background=COLORS["control"],
+                foreground="#F5FBFF",
+                anchor="w",
+                relief="solid",
+                borderwidth=1,
+                padx=6,
+                pady=3,
+            )
+            link_label.pack(side="left", fill="x", expand=True)
+            link_label.bind("<ButtonRelease-1>", lambda event, url=element["url"]: open_tkmarkup_link(url))
+            copy_icon = tkinter.Canvas(row, width=20, height=20, background=COLORS["control"], highlightthickness=0)
+            copy_icon.pack(side="left", padx=(3, 2), pady=1)
+            copy_icon.create_rectangle(5, 4, 13, 13, outline="#8ED0FF")
+            copy_icon.create_rectangle(8, 7, 16, 16, outline="#8ED0FF")
+            copy_icon.bind("<ButtonRelease-1>", lambda event, url=element["url"]: copy_tkmarkup_link(url))
         elif element["type"] == "PROMPT":
             row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=(5, 2))
             entry = tkinter.Entry(

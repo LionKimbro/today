@@ -14,6 +14,15 @@ class TkMarkupTests(unittest.TestCase):
         self.assertEqual(elements[1]["text"], "a b")
         self.assertEqual(elements[3]["title"], "item")
 
+    def test_link_is_a_distinct_identity_bearing_element(self):
+        source = "[link] Lion [https://example.com]"
+        normalized = tkmarkup.normalize_text(source)
+        link = tkmarkup.parse_text(normalized)[0]
+        self.assertEqual(link["type"], "LINK")
+        self.assertEqual(link["title"], "Lion")
+        self.assertEqual(link["url"], "https://example.com")
+        self.assertTrue(tkmarkup.is_valid_guid(link["guid"]))
+
     def test_normalization_is_idempotent_and_preserves_malformed_text(self):
         source = "[ ] Repair {bad}\n>>> " + GUID_A + "\n[x] Again " + GUID_A
         normalized = tkmarkup.normalize_text(source)
