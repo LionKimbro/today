@@ -1225,15 +1225,12 @@ def render_tkmarkup_panel(command):
     label.grid(row=0, column=1, sticky="w")
     modes = tkinter.Frame(host, background=COLORS["panel"])
     modes.grid(row=0, column=2, sticky="e")
-    buttons = {}
-    for mode in ("VIEW", "EDIT"):
-        button = tkinter.Button(modes, text=mode.title(), command=lambda mode=mode, panel_id=command["panel-id"]: handle_when_user_requests_tkmarkup_view_mode(panel_id, mode))
-        button.pack(side="left", padx=(0, 3))
-        buttons[mode] = button
+    mode_button = tkinter.Button(modes, text="Edit")
+    mode_button.pack(side="left", padx=(0, 3))
     tkinter.Button(host, text="x", width=2, command=lambda position_id=command["position-id"]: handle_when_user_clicks_unhost_panel_button(position_id)).grid(row=0, column=3)
     content = tkinter.Frame(host, background=COLORS["panel"])
     content.grid(row=1, column=1, columnspan=3, sticky="nsew", pady=(14, 0))
-    panel = {"label": label, "tkmarkup-content": content, "tkmarkup-command": command, "tkmarkup-mode-buttons": buttons}
+    panel = {"label": label, "tkmarkup-content": content, "tkmarkup-command": command, "tkmarkup-mode-button": mode_button}
     position["panel-widgets"] = panel
     panel_widgets.setdefault(command["panel-id"], []).append(panel)
     g["tkmarkup-view-modes"].setdefault(command["panel-id"], "VIEW")
@@ -1247,8 +1244,13 @@ def render_tkmarkup_presentation(panel, command):
     panel["tkmarkup-command"] = command
     panel_id = command["panel-id"]
     mode = g["tkmarkup-view-modes"].get(panel_id, "VIEW")
-    for name, button in panel["tkmarkup-mode-buttons"].items():
-        button.configure(background=COLORS["accent-blue"] if name == mode else COLORS["control"])
+    target_mode = "VIEW" if mode == "EDIT" else "EDIT"
+    panel["tkmarkup-mode-button"].configure(
+        text=target_mode.title(),
+        background=COLORS["accent-blue"],
+        foreground=COLORS["primary-text"],
+        command=lambda target_mode=target_mode, panel_id=panel_id: handle_when_user_requests_tkmarkup_view_mode(panel_id, target_mode),
+    )
     if mode == "EDIT":
         text = tkinter.Text(content, height=10, wrap="word", background=COLORS["editor"], foreground=COLORS["primary-text"], insertbackground=COLORS["primary-text"])
         text.pack(fill="both", expand=True)
@@ -1283,25 +1285,104 @@ def render_tkmarkup_presentation(panel, command):
             tkinter.Label(view, text=element["text"], background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w", justify="left", wraplength=650).pack(fill="x", pady=(2, 6))
         elif element["type"] == "ITEM":
             row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=2)
-            marker = {"[ ": "🟩", "[>": "▶️", "[x": "✅", "[-": "⛔"}[element["marker"]]
-            if element["marker"] == "[-":
-                tkinter.Label(row, text=f"{marker}  {element['title']}", background=COLORS["panel"], foreground=COLORS["primary-text"], anchor="w").pack(side="left", fill="x", expand=True, padx=2)
+            icon = tkinter.Canvas(
+                row,
+                width=20,
+                height=20,
+                background=COLORS["control"],
+                highlightthickness=0,
+            )
+            icon.pack(side="left", padx=(2, 0), pady=1)
+            if element["marker"] == "[ ":
+                icon.create_rectangle(4, 4, 16, 16, outline=COLORS["primary-text"], width=1)
+            elif element["marker"] == "[>":
+                icon.create_polygon(5, 4, 5, 16, 16, 10, fill=COLORS["accent-green"], outline="")
+            elif element["marker"] == "[x":
+                icon.create_rectangle(4, 4, 16, 16, outline=COLORS["primary-text"], width=1)
+                icon.create_line(6, 10, 9, 13, 15, 6, fill=COLORS["accent-green"], width=2)
             else:
-                tkinter.Button(row, text=f"{marker}  {element['title']}", anchor="w", command=lambda guid=element["guid"], panel_id=panel_id: send_todo_event({"type": "TODO_CYCLE_ITEM_STATE", "panel-id": panel_id, "item-uuid": guid})).pack(side="left", fill="x", expand=True)
-            for title, direction in (("↑", -1), ("↓", 1)):
-                adjacent = index + direction < len(elements) and elements[index + direction].get("type") == "ITEM"
+                icon.create_rectangle(4, 4, 16, 16, outline=COLORS["muted-text"], width=1)
+                icon.create_line(6, 6, 14, 14, fill=COLORS["muted-text"], width=2)
+                icon.create_line(14, 6, 6, 14, fill=COLORS["muted-text"], width=2)
+            item_label = tkinter.Label(
+                row,
+                text=element["title"],
+                background=COLORS["control"],
+                foreground=COLORS["primary-text"],
+                anchor="w",
+                relief="solid",
+                borderwidth=1,
+                padx=6,
+                pady=3,
+            )
+            item_label.pack(side="left", fill="x", expand=True)
+            if element["marker"] != "[-":
+                cycle_event = lambda event, guid=element["guid"], panel_id=panel_id: send_todo_event(
+                    {"type": "TODO_CYCLE_ITEM_STATE", "panel-id": panel_id, "item-uuid": guid}
+                )
+                icon.bind("<ButtonRelease-1>", cycle_event)
+                item_label.bind("<ButtonRelease-1>", cycle_event)
+            for direction in (-1, 1):
+                control = tkinter.Canvas(
+                    row,
+                    width=20,
+                    height=20,
+                    background=COLORS["control"],
+                    highlightthickness=0,
+                )
+                control.pack(side="left", padx=(3, 0), pady=1)
+                adjacent = 0 <= index + direction < len(elements) and elements[index + direction].get("type") == "ITEM"
                 if adjacent:
-                    tkinter.Button(row, text=title, width=2, command=lambda guid=element["guid"], direction=direction, panel_id=panel_id: send_todo_event({"type": "TODO_MOVE_ITEM", "panel-id": panel_id, "item-uuid": guid, "direction": direction})).pack(side="left")
-            tkinter.Button(row, text="x", width=2, command=lambda guid=element["guid"], panel_id=panel_id: send_todo_event({"type": "TODO_DELETE_ITEM", "panel-id": panel_id, "item-uuid": guid})).pack(side="left")
+                    if direction == -1:
+                        control.create_polygon(10, 4, 4, 14, 16, 14, fill=COLORS["accent-blue"], outline="")
+                    else:
+                        control.create_polygon(4, 6, 16, 6, 10, 16, fill=COLORS["accent-blue"], outline="")
+                    control.bind(
+                        "<ButtonRelease-1>",
+                        lambda event, guid=element["guid"], direction=direction, panel_id=panel_id: send_todo_event(
+                            {"type": "TODO_MOVE_ITEM", "panel-id": panel_id, "item-uuid": guid, "direction": direction}
+                        ),
+                    )
+            delete_control = tkinter.Canvas(
+                row,
+                width=20,
+                height=20,
+                background=COLORS["control"],
+                highlightthickness=0,
+            )
+            delete_control.pack(side="left", padx=(3, 2), pady=1)
+            delete_control.create_line(5, 5, 15, 15, fill="#E05A5A", width=2)
+            delete_control.create_line(15, 5, 5, 15, fill="#E05A5A", width=2)
+            delete_control.bind(
+                "<ButtonRelease-1>",
+                lambda event, guid=element["guid"], panel_id=panel_id: send_todo_event(
+                    {"type": "TODO_DELETE_ITEM", "panel-id": panel_id, "item-uuid": guid}
+                ),
+            )
         elif element["type"] == "PROMPT":
-            row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=(5, 2)); entry = tkinter.Entry(row); entry.pack(side="left", fill="x", expand=True)
+            row = tkinter.Frame(view, background=COLORS["panel"]); row.pack(fill="x", pady=(5, 2))
+            entry = tkinter.Entry(
+                row,
+                background=COLORS["editor"],
+                foreground="#F4D35E",
+                insertbackground=COLORS["primary-text"],
+                selectbackground=COLORS["accent-blue"],
+                selectforeground=COLORS["primary-text"],
+                relief="solid",
+                borderwidth=1,
+                highlightthickness=1,
+                highlightbackground=COLORS["border"],
+                highlightcolor=COLORS["accent-blue"],
+            )
+            entry.pack(side="left", fill="x", expand=True)
             def add_item(event=None, entry=entry, guid=element["guid"], panel_id=panel_id):
                 value = entry.get()
                 if value.strip():
                     entry.delete(0, "end")
                     g["tkmarkup-prompt-focus"][panel_id] = guid
                     send_todo_event({"type": "TODO_ADD_ITEM", "panel-id": panel_id, "text": value, "prompt-point": guid})
-            entry.bind("<Return>", add_item); tkinter.Button(row, text="Add", command=add_item).pack(side="left", padx=(6, 0))
+                return "break"
+            entry.bind("<Return>", add_item)
             if g["tkmarkup-prompt-focus"].get(panel_id) == element["guid"]:
                 g["tkmarkup-prompt-focus"].pop(panel_id)
                 entry.after_idle(entry.focus_set)
