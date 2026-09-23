@@ -348,6 +348,7 @@ def handle_when_user_control_clicks_delete_panel(event, panel_id):
         send_delete_panel_event(panel_id)
 
     tkinter.Button(buttons, text="Delete", command=confirm_panel_deletion).pack(side="left")
+    place_dialog_near_event(dialog, event)
     dialog.grab_set()
     return "break"
 
@@ -404,17 +405,19 @@ def handle_when_notebook_is_double_clicked(event):
         return "break"
     for tab_id, tab in tab_widgets.items():
         if page == str(tab["page"]):
-            open_tab_editor(tab_id, event.x_root, event.y_root)
+            open_tab_editor(tab_id, event)
             return "break"
 
 
-def place_dialog_near_pointer(dialog, pointer_x, pointer_y, offset=12, screen_margin=12):
+def place_dialog_near_event(dialog, event, offset=12, screen_margin=12):
     """Place a dialog beside the pointer, keeping it within the current screen."""
     dialog.update_idletasks()
     width = dialog.winfo_reqwidth()
     height = dialog.winfo_reqheight()
     screen_width = dialog.winfo_screenwidth()
     screen_height = dialog.winfo_screenheight()
+    pointer_x = event.x_root
+    pointer_y = event.y_root
 
     x = pointer_x + offset
     y = pointer_y + offset
@@ -427,7 +430,7 @@ def place_dialog_near_pointer(dialog, pointer_x, pointer_y, offset=12, screen_ma
     dialog.geometry(f"+{x}+{y}")
 
 
-def open_tab_editor(tab_id, pointer_x=None, pointer_y=None):
+def open_tab_editor(tab_id, event=None):
     dialog = tkinter.Toplevel(g["root"])
     dialog.title("Edit Tab")
     dialog.configure(background=COLORS["panel"])
@@ -483,8 +486,8 @@ def open_tab_editor(tab_id, pointer_x=None, pointer_y=None):
     entry.selection_range(0, "end")
     dialog.bind("<Return>", lambda event: handle_when_tab_rename_is_confirmed())
     dialog.bind("<Escape>", lambda event: dialog.destroy())
-    if pointer_x is not None and pointer_y is not None:
-        place_dialog_near_pointer(dialog, pointer_x, pointer_y)
+    if event is not None:
+        place_dialog_near_event(dialog, event)
     dialog.grab_set()
 
 
