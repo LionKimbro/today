@@ -1344,6 +1344,10 @@ def render_tkmarkup_presentation(panel, command):
     view.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
     canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
+    canvas.bind(
+        "<Double-Button-1>",
+        lambda event, panel_id=panel_id: handle_when_user_double_clicks_tkmarkup_view(event, panel_id),
+    )
     view.bind(
         "<Double-Button-1>",
         lambda event, panel_id=panel_id: handle_when_user_double_clicks_tkmarkup_view(event, panel_id),
