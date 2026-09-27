@@ -24,14 +24,21 @@
     },
     {
       "guid": "8cb5daba-4077-4619-b035-0cfb4c008743",
-      "title": "Data Panels",
+      "title": "Data (Object?) Panels",
       "description": "key:value data",
       "status": "conceived",
       "date-conceived": "2026-09-16",
       "date-entered": "2026-09-16",
-      "notes": "",
-      "tags": [],
-      "pinned": false
+      "notes": "For example, -- links?\n\nPerhaps they are TkMarkup panels, or similar -- using the data-vs-display/edit juxtaposition, ...\n\nWhat if some data is actually external?  Like, a link in a link database, but the link database is external to Today?\n\nWhat about data objects like: Songs I am listening to.  Artist, song, album, URL to YouTube, or it's location elsewhere, ...",
+      "tags": [
+        "data",
+        "json",
+        "m1",
+        "object",
+        "objects",
+        "music"
+      ],
+      "pinned": true
     },
     {
       "guid": "c54690a4-0927-4b7d-85ce-b51aa62c90f2",
@@ -83,7 +90,7 @@
     },
     {
       "guid": "e68c185a-5d6f-49b7-9628-8bcb40e7b933",
-      "title": "Pane: Images",
+      "title": "Image Panels",
       "description": "Be able to have a panel that is an image captured from the clipboard.",
       "status": "conceived",
       "date-conceived": "2026-09-22",
@@ -94,6 +101,34 @@
         "pane",
         "image",
         "clipboard"
+      ],
+      "pinned": true
+    },
+    {
+      "guid": "e7d89e9b-b5e0-4d87-aeda-6086ccd86bbd",
+      "title": "Expand Beyond Today: \"Everything with a Cockpit\"",
+      "description": "I've noticed that the \"cockpit\" system would be useful for more than just tracking notes on dates -- it seems that projects, notes on various subjects, -- myriad things would benefit from this kind of a panel layout.",
+      "status": "conceived",
+      "date-conceived": "2026-09-27",
+      "date-entered": "2026-09-27",
+      "notes": "UNCLEAR WHETHER TO DO THIS OR NOT.",
+      "tags": [
+        "planning",
+        "plan"
+      ],
+      "pinned": true
+    },
+    {
+      "guid": "beea0f65-e808-4b7b-8313-1e36f57a98fa",
+      "title": "Journal and Log Notes",
+      "description": "This would be an upward scrolling log, and you could read it backwards.  Log entries could exported.  Log entries could be tagged by pressing depressable buttons, and you should be able to add tag sets.  You just type into the bar, and it becomes a time-stamped log note.  You should be able to delete or edit previous log notes.  You should also be able to use a more editor-like interface (basically, a Text window, and a small Text area for editing tags.)  Think Tweets with occasional Blog entries.",
+      "status": "conceived",
+      "date-conceived": "2026-09-27",
+      "date-entered": "2026-09-27",
+      "notes": "Perhaps if you use a tag, the rest of the entries for the day could take up that tag...",
+      "tags": [
+        "logging",
+        "journal"
       ],
       "pinned": true
     }

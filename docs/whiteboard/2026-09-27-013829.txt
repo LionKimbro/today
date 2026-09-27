@@ -1,0 +1,13 @@
+2026-09-06  1:26a
+  We are working on 07 per the steps in "How do I proceed to 07?"  
+  In Codex/ChatGPT, the conversation is "[ ] Build /src/today/"
+
+Stages:  -- 3rd notch down;   https://chatgpt.com/c/6a9cf89b-4860-83e8-8cd0-634dcd19a115
+------                                        "I would grow it in this order"
+1 - [X] - Permanent Skeleton
+2 - [X] - Tk <==> Core
+3 - [X] - Add Mem and Mobile Stacks as a second independent artery
+4 - [X] - Make panel hosting real
+5 - [ ] - Introduce exactly x2 Witeboards
+6 - [ ] - Only then give Whiteboard its history behavior
+7 - [ ] - ABSORB 03
