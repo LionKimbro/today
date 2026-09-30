@@ -1,0 +1,5 @@
+date: 2026-09-29
+title: Links associated with the development of the tk-core-mem-disk architecture image.
+development: https://chatgpt.com/c/6abc27fa-e864-83e8-b3f1-a0e5cf2735dc
+tweet: https://x.com/lionkimbro10x/status/2105066948660981771
+tweetsource: https://chatgpt.com/c/6abc3f7e-bbfc-83e8-867c-f71d3793131a

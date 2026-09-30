@@ -51,10 +51,11 @@ while running:
     Mobile Stack -> handle one frame, then route its continuation
 ```
 
-Core additionally accepts plain Tk semantic-event records in its inbox.  It
-turns an inbound item into reducer event(s), reduces until its local event and
-effect queues are quiet, and then blocks again.  Mem may add a timed wakeup
-for coalesced saving, but it is still a single owner thread for its store.
+Core additionally accepts plain Tk semantic-event records in its
+inbox.  It turns an inbound item into reducer event(s), reduces until
+its local event and effect queues are quiet, and then blocks again.
+The workers may add a timed wakeup for coalesced saving or other
+timing needs, but it is still a single owner thread for its store.
 
 Each installed runtime is a small visible record:
 

@@ -131,6 +131,17 @@
         "journal"
       ],
       "pinned": true
+    },
+    {
+      "guid": "5e278d8a-e842-415e-b609-665dfc3caa6b",
+      "title": "(easy:) Bullet Points in TkMarkup",
+      "description": "",
+      "status": "conceived",
+      "date-conceived": "2026-09-28",
+      "date-entered": "2026-09-28",
+      "notes": "",
+      "tags": [],
+      "pinned": true
     }
   ]
 }
