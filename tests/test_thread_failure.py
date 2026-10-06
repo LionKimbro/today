@@ -12,8 +12,7 @@ from today import core, disk, machine, mem
 
 class ThreadFailureTests(unittest.TestCase):
     def setUp(self):
-        machine.a_thread_died_unexpectedly.clear()
-        machine.machines.clear()
+        machine.initialize_machine_system()
         for name in ("CORE", "MEM", "DISK"):
             machine.install_machine({
                 "name": name, "inbox": Queue(), "current-stack": None,
@@ -47,8 +46,11 @@ class ThreadFailureTests(unittest.TestCase):
         for failed_name in ("CORE", "MEM", "DISK"):
             with self.subTest(worker=failed_name):
                 machine.a_thread_died_unexpectedly.clear()
+                machine.shutdown_started.clear()
                 for runtime in machine.machines.values():
                     runtime["inbox"] = Queue()
+                    runtime["lifecycle"] = "starting"
+                    runtime["running"] = False
                 ready = Barrier(3)
 
                 def peer_loop():

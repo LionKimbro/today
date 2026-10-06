@@ -1,8 +1,10 @@
 """The Disk machine: durable day-bundle files."""
 
 import json
+import re
 from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
 import machineroot
 
@@ -53,6 +55,51 @@ def handle_when_disk_receives_write_day():
         destination.write("\n")
     temporary_path.replace(path)
     print("Disk WRITE_DAY:", path)
+
+
+def get_image_asset_path(day_id, asset):
+    """Only generated day-relative image names are valid stored references."""
+    if not isinstance(asset, str) or not re.fullmatch(
+            r"assets/image-[0-9a-f]{32}\.(jpg|png|gif)", asset):
+        raise ValueError("Invalid image asset reference")
+    directory, _ = get_day_paths(day_id)
+    return directory / asset
+
+
+def handle_when_disk_receives_write_image_asset():
+    extension = mobile_stacks.get_register("image-extension")
+    if extension not in (".jpg", ".png", ".gif"):
+        raise ValueError("Image machine supplied an invalid storage extension")
+    asset = f"assets/image-{uuid4().hex}{extension}"
+    path = get_image_asset_path(mobile_stacks.get_register("day-id"), asset)
+    temporary_path = path.with_suffix(path.suffix + ".tmp")
+    mobile_stacks.set_register(("image-error", None))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path.write_bytes(mobile_stacks.get_register("image-bytes"))
+        if machine.a_thread_died_unexpectedly.is_set():
+            temporary_path.unlink(missing_ok=True)
+            return
+        temporary_path.replace(path)
+    except OSError as error:
+        mobile_stacks.set_register(("image-error", str(error)))
+        return
+    mobile_stacks.set_register(("image-asset", asset))
+
+
+def handle_when_disk_receives_read_image_asset():
+    mobile_stacks.set_register(("image-error", None))
+    try:
+        path = get_image_asset_path(
+            mobile_stacks.get_register("day-id"),
+            mobile_stacks.get_register("image-asset"),
+        )
+        data = path.read_bytes()
+    except (OSError, ValueError) as error:
+        mobile_stacks.set_register(("image-error", str(error)))
+        return
+    if not machine.a_thread_died_unexpectedly.is_set():
+        mobile_stacks.set_register(("image-bytes", data))
 
 
 def run_disk_machine():

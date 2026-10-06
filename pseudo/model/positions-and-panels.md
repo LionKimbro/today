@@ -39,11 +39,12 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 | --- | --- |
 | `id` | Panel identity |
 | `day-id` | Owning day identity |
-| `type` | `WHITEBOARD`, `TODO`, `TKMARKUP`, `JOURNAL`, or top-slot-only `ORIENTATION` |
+| `type` | `WHITEBOARD`, `TODO`, `TKMARKUP`, `JOURNAL`, `IMAGE`, or top-slot-only `ORIENTATION` |
 | `label` | Visible label |
 | `text` | Panel text |
 | `history` | Whiteboard snapshots only |
 | `revision` | Canonical update revision |
+| `image-asset` | Image panel only: day-relative asset reference, or null |
 
 ## Hosting
 
@@ -77,6 +78,13 @@ semantic item events; Text editing uses the ordinary one-second debounce.
 Either path becomes the normal revisioned `UPDATE_PANEL` request to Mem.
 
 Journal remains a plain text panel for now.
+
+## Image panels
+
+Image panels keep one JPEG, PNG, or GIF asset reference; clipboard pixels become
+PNG. Import controls reappear when cleared. Clearing removes the reference,
+not the day-owned file. GIF display is static (first frame). Image bytes and
+preview pixels never enter canonical panel records or the JSON day bundle.
 
 ## TkMarkup panels
 

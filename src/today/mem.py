@@ -168,19 +168,21 @@ def handle_when_mem_receives_get_panel():
 def handle_when_mem_receives_create_panel():
     day_id = mobile_stacks.get_register("day-id")
     panel_type = mobile_stacks.get_register("panel-type")
-    if panel_type not in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP"}:
+    if panel_type not in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP", "IMAGE"}:
         raise RuntimeError(f"cannot create panel type {panel_type}")
     panel_id = f"{panel_type.lower()}-{uuid4().hex}"
     panel = {
         "id": panel_id,
         "day-id": day_id,
         "type": panel_type,
-        "label": {"WHITEBOARD": "Whiteboard", "TODO": "To-Do", "JOURNAL": "Journal", "TKMARKUP": "TkMarkup"}[panel_type],
+        "label": {"WHITEBOARD": "Whiteboard", "TODO": "To-Do", "JOURNAL": "Journal", "TKMARKUP": "TkMarkup", "IMAGE": "Image"}[panel_type],
         "text": "",
         "revision": 1,
     }
     if panel_type == "WHITEBOARD":
         panel["history"] = []
+    if panel_type == "IMAGE":
+        panel["image-asset"] = None
     panels[panel_id] = panel
     mark_day_for_disk_save(day_id)
     print("Mem CREATE_PANEL:", panel_id, "for", day_id)
@@ -491,7 +493,7 @@ def run_mem_machine():
             break
         if item is None:
             flush_day_writes_when_due(force=True)
-            runtime["running"] = False
+            machine.request_machine_retirement()
             return
 
         machine.handle_received_mobile_stack(item)

@@ -45,8 +45,30 @@ panel controls; an unhosted position visibly says it is empty.
 Stage 7C gives an empty position a chooser of eligible existing panels. A
 hosted position offers `Unhost panel`; neither control mutates Tk's model.
 
-An empty position also offers `+ Whiteboard`, `+ To-Do`, `+ TkMarkup`, and `+ Journal`.
+An empty position also offers `+ Whiteboard`, `+ To-Do`, `+ TkMarkup`, `+ Journal`, and `+ Image`.
 Each sends `CREATE_AND_HOST_PANEL`; Tk does not mint or host a panel itself.
+
+An Image panel offers Paste from Clipboard, Browse for Image, and native file
+drop into its canvas. The TkDND-enabled root owns drop reception; Tcl list
+parsing preserves spaces in dropped paths. Browse obtains a path through the
+native dialog. Paste only requests clipboard acquisition. Each emits
+`IMPORT_IMAGE`; acquisition, decoding, resizing, and asset writes happen off
+the Tk thread. Multiple dropped files produce a local explanatory message.
+
+`RENDER_IMAGE_PANEL` supplies the asset reference, busy state, and input error.
+Empty controls disable while busy. Clear image emits `CLEAR_IMAGE`, including
+during an import; it is distinct from the shared panel-unhost `x` control.
+Each hosted position retains its own PhotoImage and preview geometry.
+
+Mapped, nonzero canvas bounds debounce `REQUEST_IMAGE_PREVIEW` by 100 ms.
+`SET_IMAGE_PREVIEW` carries prepared RGBA bytes and actual dimensions plus
+the original requested bounds. Tk constructs the Tk image without decoding
+or resizing. Results whose asset or requested bounds are obsolete are ignored.
+Unhosting and full rebuild cancel pending callbacks and invalidate old widget
+records; hidden hosts request their preview when mapped.
+
+The 50 ms main-thread fatal-failure poll also reaps exited worker runtimes.
+Reaping joins and removes completed machines; it does not request retirement.
 
 Normal `x` unhosts. Control-clicking `x` opens a Tk-local delete confirmation;
 its optional 30-second no-prompt window is also Tk-local. Confirmation sends

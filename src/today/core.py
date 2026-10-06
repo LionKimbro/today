@@ -3,6 +3,7 @@
 import re
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from uuid import uuid4
 
 from . import machine, mobile_stacks, tkmarkup
 
@@ -23,6 +24,9 @@ tabs = {}
 rows = {}
 positions = {}
 visible_panels = {}
+image_jobs = {}  # panel-id -> current import token; late imports are ignored.
+image_errors = {}  # UI-only errors, never included in canonical panel records.
+image_previews = {}  # (panel-id, width, height) -> outstanding preview token.
 
 
 def initialize_core_state():
@@ -66,6 +70,8 @@ def get_position_rendering(position_id):
         return {**rendering, **get_whiteboard_view(panel)}
     if panel["type"] == "TODO":
         return {**rendering, "panel-text": panel["text"], "todo-items": get_todo_items(panel)}
+    if panel["type"] == "IMAGE":
+        return {**rendering, **get_image_panel_rendering(panel["id"])}
     return {**rendering, "panel-text": panel["text"]}
 
 
@@ -80,7 +86,7 @@ def get_available_panel_ids(position_id):
         panel_id
         for panel_id in g["known-panel-ids"]
         if panel_id not in hosted_panel_ids
-        and visible_panels[panel_id]["type"] in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP"}
+        and visible_panels[panel_id]["type"] in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP", "IMAGE"}
     ]
 
 
@@ -148,6 +154,99 @@ def get_canonical_panel_fields(panel):
             "render-tkmarkup-view-after-accept",
         }
     }
+
+
+def get_image_panel_rendering(panel_id):
+    return {
+        "image-asset": visible_panels[panel_id].get("image-asset"),
+        "image-busy": panel_id in image_jobs,
+        "image-error": image_errors.get(panel_id),
+    }
+
+
+def forget_image_requests(panel_id):
+    image_jobs.pop(panel_id, None)
+    image_errors.pop(panel_id, None)
+    for key in list(image_previews):
+        if key[0] == panel_id:
+            image_previews.pop(key)
+
+
+def prepare_image_panel_update(panel_id, asset):
+    panel = visible_panels[panel_id]
+    panel["image-asset"] = asset
+    panel["dirty"] = True
+    panel["edit-generation"] += 1
+    effects = [{"type": "RENDER_IMAGE_PANEL", "panel-id": panel_id}]
+    if panel["save-generation"] is None:
+        effects.append(prepare_text_panel_update(panel_id))
+    return effects
+
+
+def reduce_image_event(event):
+    panel_id = event["panel-id"]
+    panel = visible_panels.get(panel_id)
+    if panel is None or panel["type"] != "IMAGE":
+        return []
+    if event["type"] == "IMPORT_IMAGE":
+        if panel_id in image_jobs:
+            return []
+        source = event.get("source", {})
+        if source.get("kind") not in {"file", "clipboard"}:
+            return []
+        request_id = uuid4().hex
+        image_jobs[panel_id] = request_id
+        image_errors.pop(panel_id, None)
+        return [
+            {"type": "RENDER_IMAGE_PANEL", "panel-id": panel_id},
+            {"type": "IMPORT_IMAGE", "panel-id": panel_id,
+             "day-id": panel["day-id"], "request-id": request_id, "source": source},
+        ]
+    if event["type"] == "CLEAR_IMAGE":
+        forget_image_requests(panel_id)
+        if panel.get("image-asset") is None:
+            return [{"type": "RENDER_IMAGE_PANEL", "panel-id": panel_id}]
+        return prepare_image_panel_update(panel_id, None)
+    if event.get("day-id", panel["day-id"]) != panel["day-id"]:
+        return []
+    if event["type"] == "IMAGE_IMPORTED":
+        if image_jobs.get(panel_id) != event["request-id"]:
+            return []
+        forget_image_requests(panel_id)
+        result = event["image-result"]
+        if result["status"] != "ok":
+            image_errors[panel_id] = result["error"]
+            return [{"type": "RENDER_IMAGE_PANEL", "panel-id": panel_id}]
+        return prepare_image_panel_update(panel_id, result["image-asset"])
+    if event["type"] == "REQUEST_IMAGE_PREVIEW":
+        asset = panel.get("image-asset")
+        if not asset or asset != event.get("image-asset"):
+            return []
+        width, height = event["width"], event["height"]
+        if width <= 0 or height <= 0:
+            return []
+        key = (panel_id, width, height)
+        if key in image_previews:
+            return []
+        request_id = uuid4().hex
+        image_previews[key] = request_id
+        return [{"type": "LOAD_IMAGE_PREVIEW", "panel-id": panel_id,
+                 "day-id": panel["day-id"], "image-asset": asset,
+                 "width": width, "height": height, "request-id": request_id}]
+    if event["type"] == "IMAGE_PREVIEW_RECEIVED":
+        key = (panel_id, event["width"], event["height"])
+        if image_previews.get(key) != event["request-id"]:
+            return []
+        image_previews.pop(key)
+        result = event["image-result"]
+        if panel.get("image-asset") != event["image-asset"]:
+            return []
+        if result["status"] != "ok":
+            image_errors[panel_id] = result["error"]
+            return [{"type": "RENDER_IMAGE_PANEL", "panel-id": panel_id}]
+        return [{"type": "SET_IMAGE_PREVIEW", "panel-id": panel_id,
+                 "request-id": event["request-id"], **result}]
+    return []
 
 
 def get_day_navigation_effect_when_ready():
@@ -257,6 +356,11 @@ def make_whiteboard_snapshot(panel):
 
 
 def reduce_event(event):
+    if event["type"] in {
+        "IMPORT_IMAGE", "CLEAR_IMAGE", "IMAGE_IMPORTED", "REQUEST_IMAGE_PREVIEW",
+        "IMAGE_PREVIEW_RECEIVED",
+    }:
+        return reduce_image_event(event)
     if event["type"] == "START":
         return [{"type": "GET_DAY_LAYOUT", "day-id": g["current-day-id"]}]
 
@@ -273,6 +377,9 @@ def reduce_event(event):
         positions.clear()
         positions.update(layout["positions"])
         visible_panels.clear()
+        image_jobs.clear()
+        image_errors.clear()
+        image_previews.clear()
         g["pending-initial-panel-ids"] = sorted(g["known-panel-ids"])
         return [
             {"type": "GET_PANEL", "panel-id": panel_id}
@@ -485,9 +592,11 @@ def reduce_event(event):
             or visible_panels[event["panel-id"]]["type"] == "ORIENTATION"
         ):
             return []
+        forget_image_requests(event["panel-id"])
         return [{"type": "DELETE_PANEL", "panel-id": event["panel-id"]}]
 
     if event["type"] == "PANEL_DELETED":
+        forget_image_requests(event["panel-id"])
         visible_panels.pop(event["panel-id"], None)
         g["known-panel-ids"].remove(event["panel-id"])
         for position_id in event["position-ids"]:
@@ -728,6 +837,13 @@ def reduce_event(event):
         return [*effects, *get_day_navigation_effect_when_ready()]
 
     if event["type"] == "PANEL_UPDATE_CONFLICT":
+        panel = visible_panels.get(event["panel-id"])
+        if panel is not None and panel["type"] == "IMAGE":
+            forget_image_requests(event["panel-id"])
+            install_panel_snapshot(event["panel"])
+            image_errors[event["panel-id"]] = "Image changed elsewhere; the current saved image has been restored."
+            return [{"type": "RENDER_IMAGE_PANEL", "panel-id": event["panel-id"]},
+                    *get_day_navigation_effect_when_ready()]
         print("Core reducer: PANEL_UPDATE_CONFLICT", event["panel-id"], "revision", event["panel"]["revision"])
         return []
 
@@ -738,6 +854,31 @@ def reduce_event(event):
 
 
 def dispatch_effect(effect):
+    if effect["type"] in {"IMPORT_IMAGE", "LOAD_IMAGE_PREVIEW"}:
+        mobile_stacks.create_stack()
+        for key in ("day-id", "panel-id", "request-id"):
+            mobile_stacks.set_register((key, effect[key]))
+        if effect["type"] == "IMPORT_IMAGE":
+            mobile_stacks.set_register(("source", dict(effect["source"])))
+            continuation, entry = "IMAGE_IMPORTED", "IMPORT_IMAGE"
+        else:
+            for key in ("image-asset", "width", "height"):
+                mobile_stacks.set_register((key, effect[key]))
+            continuation, entry = "IMAGE_PREVIEW_RETURNED", "LOAD_PREVIEW"
+        mobile_stacks.push_frame({"machine": "CORE", "entry": continuation})
+        mobile_stacks.push_frame({"machine": {"new": "IMAGE"}, "entry": entry})
+        machine.route_current_stack()
+        return
+
+    if effect["type"] == "RENDER_IMAGE_PANEL":
+        g["send-tk-command"]({"type": "RENDER_IMAGE_PANEL",
+                              "panel-id": effect["panel-id"],
+                              **get_image_panel_rendering(effect["panel-id"])})
+        return
+
+    if effect["type"] == "SET_IMAGE_PREVIEW":
+        g["send-tk-command"]({key: value for key, value in effect.items() if key != "status"})
+        return
     if effect["type"] == "GET_DAY_LAYOUT":
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("day-id", effect["day-id"]))
@@ -1040,7 +1181,8 @@ def dispatch_effect(effect):
         return
 
     if effect["type"] == "STOP_CORE":
-        machine.get_current_runtime()["running"] = False
+        machine.begin_shutdown()
+        machine.request_machine_retirement()
         return
 
     if effect["type"] == "STOP_MEM":
@@ -1207,6 +1349,24 @@ def handle_when_core_receives_panel_update():
     g["reducer-events"].append(
         {"type": "PANEL_UPDATE_CONFLICT", "panel-id": panel_id, "panel": panel}
     )
+
+
+def handle_when_core_receives_image_import():
+    g["reducer-events"].append({
+        "type": "IMAGE_IMPORTED",
+        **{key: mobile_stacks.get_register(key) for key in ("day-id", "panel-id", "request-id")},
+        "image-result": deepcopy(mobile_stacks.get_register("image-result")),
+    })
+
+
+def handle_when_core_receives_image_preview():
+    g["reducer-events"].append({
+        "type": "IMAGE_PREVIEW_RECEIVED",
+        **{key: mobile_stacks.get_register(key) for key in (
+            "day-id", "panel-id", "request-id", "image-asset", "width", "height",
+        )},
+        "image-result": deepcopy(mobile_stacks.get_register("image-result")),
+    })
 
 
 def run_reducer_core():

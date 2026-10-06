@@ -5,7 +5,10 @@ import webbrowser
 import os
 from queue import Empty
 from time import monotonic
-from tkinter import ttk
+from tkinter import filedialog, ttk
+
+from PIL import Image, ImageTk
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from . import machine, tkmarkup
 
@@ -105,7 +108,7 @@ def open_tkmarkup_path(path):
 
 
 def build_today_window():
-    g["root"] = tkinter.Tk()
+    g["root"] = TkinterDnD.Tk()
     g["root"].title("Today")
     g["root"].minsize(700, 500)
     g["root"].geometry("1100x760")
@@ -698,6 +701,14 @@ def realize_core_command(command):
         render_tkmarkup_view(command)
         return
 
+    if command["type"] == "RENDER_IMAGE_PANEL":
+        render_image_view(command)
+        return
+
+    if command["type"] == "SET_IMAGE_PREVIEW":
+        set_image_preview(command)
+        return
+
     if command["type"] == "SET_WHITEBOARD_HISTORY_CURSOR":
         render_whiteboard_history_controls(command)
         return
@@ -738,6 +749,9 @@ def build_today_tabs(command):
     for after_id in g["scroll-save-ids"].values():
         g["root"].after_cancel(after_id)
     g["scroll-save-ids"].clear()
+    for panels in panel_widgets.values():
+        for panel in panels:
+            cancel_image_preview_request(panel)
     for child in widgets["tabs"].winfo_children():
         child.destroy()
     tab_widgets.clear()
@@ -1019,6 +1033,7 @@ def build_row_resize_handle(parent, row_id):
 def clear_position_host(position_id):
     position = position_widgets[position_id]
     if position["panel-id"] is not None:
+        cancel_image_preview_request(position["panel-widgets"])
         panel_widgets[position["panel-id"]].remove(position["panel-widgets"])
         if not panel_widgets[position["panel-id"]]:
             panel_widgets.pop(position["panel-id"])
@@ -1048,7 +1063,7 @@ def render_empty_position(command):
     )
     creation_buttons = tkinter.Frame(host, background=COLORS["panel"])
     creation_buttons.grid(row=1, column=0, sticky="w", pady=(12, 0))
-    for panel_type, label in (("WHITEBOARD", "+ Whiteboard"), ("TODO", "+ To-Do"), ("TKMARKUP", "+ TkMarkup"), ("JOURNAL", "+ Journal")):
+    for panel_type, label in (("WHITEBOARD", "+ Whiteboard"), ("TODO", "+ To-Do"), ("TKMARKUP", "+ TkMarkup"), ("JOURNAL", "+ Journal"), ("IMAGE", "+ Image")):
         tkinter.Button(
             creation_buttons,
             text=label,
@@ -1533,7 +1548,234 @@ def render_tkmarkup_view(command):
         render_tkmarkup_presentation(panel, command)
 
 
+def cancel_image_preview_request(panel):
+    if "image-canvas" not in panel:
+        return
+    panel["image-active"] = False
+    if panel["image-resize-id"] is not None:
+        g["root"].after_cancel(panel["image-resize-id"])
+        panel["image-resize-id"] = None
+
+
+def render_image_panel(command):
+    position = position_widgets[command["position-id"]]
+    host = position["host"]
+    set_panel_widget_context(command, host)
+    position["panel-id"] = command["panel-id"]
+    host.columnconfigure(0, weight=0)
+    host.columnconfigure(1, weight=1)
+    host.rowconfigure(1, weight=1)
+    tkinter.Frame(host, background=get_panel_accent(command["panel-id"]), width=5).grid(
+        row=0, column=0, sticky="ns", padx=(0, 12)
+    )
+    label = ttk.Label(host, text=command["panel-label"], style="PanelTitle.TLabel")
+    label.grid(row=0, column=1, sticky="w")
+    create_widget("unhost-button").grid(row=0, column=2, sticky="e")
+    content = tkinter.Frame(host, background=COLORS["panel"])
+    content.grid(row=1, column=1, columnspan=2, sticky="nsew", pady=(14, 0))
+    content.columnconfigure(0, weight=1)
+    content.rowconfigure(0, weight=1)
+    canvas = tkinter.Canvas(
+        content, height=180, width=120, background=COLORS["editor"],
+        highlightthickness=1, highlightbackground=COLORS["border"],
+    )
+    canvas.grid(row=0, column=0, sticky="nsew")
+    placeholder = canvas.create_text(
+        0, 0, text="Drop a JPEG, PNG, or GIF here",
+        fill=COLORS["secondary-text"], justify="center",
+    )
+    controls = tkinter.Frame(content, background=COLORS["panel"])
+    controls.grid(row=1, column=0, sticky="ew", pady=(7, 0))
+    empty_controls = tkinter.Frame(controls, background=COLORS["panel"])
+    empty_controls.pack(side="left")
+    panel = {
+        "label": label, "panel-id": command["panel-id"],
+        "image-canvas": canvas, "image-placeholder": placeholder,
+        "image-empty-controls": empty_controls, "image-buttons": [],
+        "image-active": True, "image-asset": None, "image-busy": False,
+        "image-error": None, "image-photo": None, "image-item": None,
+        "image-resize-id": None, "image-requested": None,
+    }
+    for text, callback in (
+        ("Paste from Clipboard", lambda: handle_when_user_pastes_image(panel)),
+        ("Browse for Image…", lambda: handle_when_user_browses_for_image(panel)),
+    ):
+        button = tkinter.Button(
+            empty_controls, text=text, command=callback,
+            background=COLORS["control"], foreground=COLORS["secondary-text"],
+            activebackground=COLORS["divider"], activeforeground=COLORS["primary-text"],
+            relief="flat", borderwidth=0, padx=8, pady=4,
+        )
+        button.pack(side="left", padx=(0, 6))
+        panel["image-buttons"].append(button)
+    panel["image-clear"] = tkinter.Button(
+        controls, text="Clear image", command=lambda: handle_when_user_clears_image(panel),
+        background=COLORS["control"], foreground=COLORS["secondary-text"],
+        activebackground=COLORS["divider"], activeforeground=COLORS["primary-text"],
+        relief="flat", borderwidth=0, padx=8, pady=4,
+    )
+    panel["image-status"] = tkinter.Label(
+        content, background=COLORS["panel"], foreground=COLORS["secondary-text"],
+        anchor="w", justify="left", wraplength=300,
+    )
+    panel["image-status"].grid(row=2, column=0, sticky="ew", pady=(4, 0))
+    canvas.bind("<Configure>", lambda event: handle_when_image_space_resizes(panel))
+    canvas.bind("<Map>", lambda event: handle_when_image_space_resizes(panel))
+    canvas.drop_target_register(DND_FILES)
+    canvas.dnd_bind("<<Drop>>", lambda event: handle_when_user_drops_image(event, panel))
+    position["panel-widgets"] = panel
+    panel_widgets.setdefault(command["panel-id"], []).append(panel)
+    render_image_presentation(panel, command)
+
+
+def handle_when_user_pastes_image(panel):
+    send_image_import(panel, {"kind": "clipboard"})
+
+
+def handle_when_user_browses_for_image(panel):
+    if not panel["image-active"] or panel["image-busy"] or g["closing"]:
+        return
+    path = filedialog.askopenfilename(
+        parent=g["root"], title="Choose an image",
+        filetypes=[("Images", "*.jpg *.jpeg *.png *.gif"), ("All files", "*.*")],
+    )
+    if path:
+        send_image_import(panel, {"kind": "file", "path": path})
+
+
+def handle_when_user_drops_image(event, panel):
+    if not panel["image-active"] or panel["image-busy"] or panel["image-asset"] or g["closing"]:
+        return "none"
+    paths = g["root"].tk.splitlist(event.data)
+    if len(paths) != 1:
+        panel["image-error"] = "Drop one image file at a time."
+        render_image_presentation(panel, panel)
+        return "none"
+    send_image_import(panel, {"kind": "file", "path": paths[0]})
+    return "copy"
+
+
+def send_image_import(panel, source):
+    if not panel["image-active"] or panel["image-busy"] or g["closing"]:
+        return
+    panel["image-busy"] = True
+    panel["image-error"] = None
+    render_image_presentation(panel, panel)
+    g["outgoing-events"].put(
+        {"type": "IMPORT_IMAGE", "panel-id": panel["panel-id"], "source": source}
+    )
+
+
+def handle_when_user_clears_image(panel):
+    if not panel["image-active"] or g["closing"]:
+        return
+    g["outgoing-events"].put({"type": "CLEAR_IMAGE", "panel-id": panel["panel-id"]})
+
+
+def render_image_view(command):
+    for panel in panel_widgets.get(command["panel-id"], []):
+        if "image-canvas" in panel:
+            render_image_presentation(panel, command)
+
+
+def render_image_presentation(panel, command):
+    asset = command.get("image-asset")
+    if asset != panel["image-asset"]:
+        panel["image-requested"] = None
+        panel["image-photo"] = None
+        if panel["image-item"] is not None:
+            panel["image-canvas"].delete(panel["image-item"])
+            panel["image-item"] = None
+    panel["image-asset"] = asset
+    panel["image-busy"] = command.get("image-busy", False)
+    panel["image-error"] = command.get("image-error")
+    if asset:
+        panel["image-empty-controls"].pack_forget()
+    else:
+        panel["image-empty-controls"].pack(side="left")
+    if asset or panel["image-busy"]:
+        panel["image-clear"].pack(side="right")
+    else:
+        panel["image-clear"].pack_forget()
+    for button in panel["image-buttons"]:
+        button.configure(state="disabled" if panel["image-busy"] else "normal")
+    panel["image-status"].configure(
+        text=panel["image-error"] or ("Importing image…" if panel["image-busy"] else ""),
+        foreground="#E88A8A" if panel["image-error"] else COLORS["secondary-text"],
+    )
+    panel["image-canvas"].itemconfigure(
+        panel["image-placeholder"],
+        text="Loading image…" if asset else "Drop a JPEG, PNG, or GIF here",
+        state="hidden" if panel["image-photo"] is not None else "normal",
+    )
+    handle_when_image_space_resizes(panel)
+
+
+def handle_when_image_space_resizes(panel):
+    if not panel["image-active"]:
+        return
+    canvas = panel["image-canvas"]
+    center = (canvas.winfo_width() / 2, canvas.winfo_height() / 2)
+    canvas.coords(panel["image-placeholder"], *center)
+    canvas.itemconfigure(panel["image-placeholder"], width=max(1, canvas.winfo_width() - 20))
+    panel["image-status"].configure(wraplength=max(1, canvas.winfo_width()))
+    if panel["image-item"] is not None:
+        canvas.coords(panel["image-item"], *center)
+    if panel["image-resize-id"] is not None:
+        g["root"].after_cancel(panel["image-resize-id"])
+    panel["image-resize-id"] = g["root"].after(
+        100, lambda: handle_when_image_preview_debounce_expires(panel)
+    )
+
+
+def handle_when_image_preview_debounce_expires(panel):
+    panel["image-resize-id"] = None
+    if not panel["image-active"] or not panel["image-asset"] or g["closing"]:
+        return
+    canvas = panel["image-canvas"]
+    width, height = canvas.winfo_width() - 12, canvas.winfo_height() - 12
+    if not canvas.winfo_ismapped() or width < 1 or height < 1:
+        return
+    request = (panel["image-asset"], width, height)
+    if request == panel["image-requested"]:
+        return
+    panel["image-requested"] = request
+    g["outgoing-events"].put({
+        "type": "REQUEST_IMAGE_PREVIEW", "panel-id": panel["panel-id"],
+        "image-asset": request[0], "width": width, "height": height,
+    })
+
+
+def set_image_preview(command):
+    request = (
+        command["image-asset"], command.get("request-width", command["width"]),
+        command.get("request-height", command["height"]),
+    )
+    for panel in panel_widgets.get(command["panel-id"], []):
+        if "image-canvas" not in panel or not panel["image-active"]:
+            continue
+        canvas = panel["image-canvas"]
+        bounds = (canvas.winfo_width() - 12, canvas.winfo_height() - 12)
+        if request != panel["image-requested"] or request[0] != panel["image-asset"]:
+            continue
+        if bounds != request[1:]:
+            continue
+        pixels = Image.frombytes("RGBA", (command["width"], command["height"]), command["pixels"])
+        photo = ImageTk.PhotoImage(pixels, master=g["root"])
+        panel["image-photo"] = photo
+        center = (canvas.winfo_width() / 2, canvas.winfo_height() / 2)
+        if panel["image-item"] is None:
+            panel["image-item"] = canvas.create_image(*center, image=photo)
+        else:
+            canvas.itemconfigure(panel["image-item"], image=photo)
+            canvas.coords(panel["image-item"], *center)
+        canvas.itemconfigure(panel["image-placeholder"], state="hidden")
+
+
 def render_hosted_panel(command):
+    if command["panel-type"] == "IMAGE":
+        render_image_panel(command)
+        return
     if command["panel-type"] == "TODO":
         render_todo_panel(command)
         return
@@ -1692,7 +1934,10 @@ def handle_when_core_mail_arrives(event):
             if machine.a_thread_died_unexpectedly.is_set():
                 return
             command = g["incoming-commands"].get_nowait()
-            print("Core -> Tk:", command)
+            if command["type"] == "SET_IMAGE_PREVIEW":
+                print("Core -> Tk: SET_IMAGE_PREVIEW", command["panel-id"], command["width"], command["height"])
+            else:
+                print("Core -> Tk:", command)
             realize_core_command(command)
             if command["type"] == "SHUTDOWN_COMPLETE":
                 return
@@ -1702,6 +1947,7 @@ def handle_when_core_mail_arrives(event):
 
 def handle_when_checking_for_fatal_worker_failure():
     """Close on the Tk thread even if Core can no longer send commands."""
+    machine.reap_exited_machines(["dynamic"])
     if machine.a_thread_died_unexpectedly.is_set():
         g["closing"] = True
         g["root"].destroy()

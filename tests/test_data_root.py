@@ -6,7 +6,7 @@ from unittest.mock import patch
 import unittest
 
 import machineroot
-from today import disk, main, tk
+from today import disk, machine, main, tk
 
 
 class DataRootTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class DataRootTests(unittest.TestCase):
             with self.subTest(error=type(error).__name__), \
                     patch.object(machineroot, "get", side_effect=error), \
                     patch.object(tk, "build_today_window") as build, \
-                    patch.object(main, "Thread") as worker:
+                    patch.object(machine, "start_worker") as worker:
                 with self.assertRaises(type(error)):
                     main.main()
                 build.assert_not_called()

@@ -29,5 +29,8 @@ Whiteboard records also canonically carry newest-first snapshot history.
 
 `CREATE_PANEL` also accepts `TKMARKUP`, with label `TkMarkup` and empty text.
 
+`IMAGE` panels start with `image-asset = null`. Mem owns that portable reference
+and its revision, but no decoded images, import jobs, or preview pixel buffers.
+
 `UPDATE_PANEL` accepts only a matching base revision, then returns the accepted
 canonical panel with its incremented revision.

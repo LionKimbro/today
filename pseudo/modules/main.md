@@ -11,8 +11,15 @@ joins Core and Mem before stopping Disk. Fatal shutdown wakes all workers
 immediately; after Tk closes and workers join, main exits with status 1.
 
 `worker_threads` holds the three process worker handles. Both the application
-and worker tests call `finish_worker_shutdown`: join Core, join Mem, send Disk
-its sentinel, join Disk. Test fallback cleanup runs only after failure.
+and worker tests call `finish_worker_shutdown`: join Core, join dynamic workers,
+join Mem, send Disk its sentinel, join Disk. Test fallback cleanup runs only
+after failure. Tests start workers through the same tracked startup function.
+
+Startup resets the runtime system, installs kinds, and starts tracked workers.
+Final shutdown begins by closing dynamic creation and waking dynamic machines,
+joins Core and all dynamic workers, joins Mem, then stops/joins Disk. Main reaps
+all exited workers after joining. Tk's main-thread polling also reaps completed
+dynamic machines while the window remains open.
 
 WIRES:
 

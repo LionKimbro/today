@@ -1,7 +1,6 @@
 """Behavioral checks for ownership, continuation passage, and the live workers."""
 
 from queue import Queue
-from threading import Thread
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from copy import deepcopy
@@ -29,8 +28,7 @@ class MachineTests(unittest.TestCase):
         disk.initialize_data_root(self.temporary_database.name)
         self.addCleanup(self.restore_database_root)
 
-        machine.machines.clear()
-        machine.a_thread_died_unexpectedly.clear()
+        machine.initialize_machine_system()
         self.core = runtime("CORE", {
             "PANEL_RETURNED": core.handle_when_core_receives_panel_return,
             "DAY_LAYOUT_RETURNED": core.handle_when_core_receives_day_layout,
@@ -232,7 +230,7 @@ class MachineTests(unittest.TestCase):
 
     def exercise_workers(self, shutdown):
         main.worker_threads.update({
-            name: Thread(target=machine.run_worker, args=(name, worker_loop), daemon=True)
+            name: machine.start_worker(name, worker_loop)
             for name, worker_loop in (
                 ("DISK", disk.run_disk_machine),
                 ("MEM", mem.run_mem_machine),
@@ -240,8 +238,6 @@ class MachineTests(unittest.TestCase):
             )
         })
         workers = list(main.worker_threads.values())
-        for worker in workers:
-            worker.start()
         try:
             render = self.commands.get(timeout=3)
             self.assertEqual(render["type"], "RENDER_TODAY")

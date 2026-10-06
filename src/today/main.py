@@ -1,9 +1,8 @@
 """Startup and wiring for Today machines."""
 
 from queue import Queue
-from threading import Thread
 
-from . import core, disk, machine, mem, tk
+from . import core, disk, image, machine, mem, tk
 
 
 worker_threads = {"CORE": None, "MEM": None, "DISK": None}
@@ -11,14 +10,21 @@ worker_threads = {"CORE": None, "MEM": None, "DISK": None}
 
 def finish_worker_shutdown():
     """Wait for all producers to stop before stopping Disk's consumer."""
+    machine.begin_shutdown()
     worker_threads["CORE"].join()
+    for runtime in machine.get_machine_runtimes():
+        if runtime["dynamic"] and runtime["thread"] is not None:
+            runtime["thread"].join()
     worker_threads["MEM"].join()
     machine.machines["DISK"]["inbox"].put(None)
     worker_threads["DISK"].join()
+    machine.reap_exited_machines()
 
 
 def main(data_root=None):
     disk.initialize_data_root(data_root)
+    machine.initialize_machine_system()
+    machine.install_machine_kind("IMAGE", image.HANDLERS)
     core_inbox = Queue()
     mem_inbox = Queue()
     disk_inbox = Queue()
@@ -29,6 +35,8 @@ def main(data_root=None):
         "inbox": core_inbox,
         "current-stack": None,
         "handlers": {
+            "IMAGE_IMPORTED": core.handle_when_core_receives_image_import,
+            "IMAGE_PREVIEW_RETURNED": core.handle_when_core_receives_image_preview,
             "PANEL_RETURNED": core.handle_when_core_receives_panel_return,
             "PANEL_CREATED_RETURNED": core.handle_when_core_receives_created_panel,
             "PANEL_UPDATED": core.handle_when_core_receives_panel_update,
@@ -75,6 +83,8 @@ def main(data_root=None):
         "inbox": disk_inbox,
         "current-stack": None,
         "handlers": {
+            "WRITE_IMAGE_ASSET": disk.handle_when_disk_receives_write_image_asset,
+            "READ_IMAGE_ASSET": disk.handle_when_disk_receives_read_image_asset,
             "LOAD_DAY": disk.handle_when_disk_receives_load_day,
             "WRITE_DAY": disk.handle_when_disk_receives_write_day,
         },
@@ -89,15 +99,9 @@ def main(data_root=None):
     tk.g["incoming-commands"] = core_to_tk
 
     tk.build_today_window()
-    worker_threads["DISK"] = Thread(target=machine.run_worker,
-                                    args=("DISK", disk.run_disk_machine), name="Today Disk")
-    worker_threads["MEM"] = Thread(target=machine.run_worker,
-                                   args=("MEM", mem.run_mem_machine), name="Today Mem")
-    worker_threads["CORE"] = Thread(target=machine.run_worker,
-                                    args=("CORE", core.run_reducer_core), name="Today Reducer Core")
-    worker_threads["DISK"].start()
-    worker_threads["MEM"].start()
-    worker_threads["CORE"].start()
+    worker_threads["DISK"] = machine.start_worker("DISK", disk.run_disk_machine)
+    worker_threads["MEM"] = machine.start_worker("MEM", mem.run_mem_machine)
+    worker_threads["CORE"] = machine.start_worker("CORE", core.run_reducer_core)
     tk.run_tk_machine()
     finish_worker_shutdown()
     if machine.a_thread_died_unexpectedly.is_set():

@@ -8,12 +8,12 @@ OWNS:
   declarative Tk commands
   Core lifecycle
 
-Lifecycle uses the claimed runtime's `running` field. `None` in the Core inbox
+Lifecycle uses the shared runtime's retirement procedure. `None` in the Core inbox
 becomes `SHUTDOWN`, whose effects stop Core, send Mem its sentinel, and allow
 Tk to close. This does not drain outstanding return stacks.
 
 An unloaded panel cannot be renamed. Rename currently changes only the active
-Core copy; there is no canonical commit operation in Stage 3.
+Core copy before the ordinary revisioned Mem commit.
 
 READS:
   plain Tk semantic events
@@ -208,3 +208,17 @@ PSEUDOCODE:
   HISTORY_CURSOR_CHANGED changes only the viewed version.
   First TEXT_CHANGED away from HEAD snapshots HEAD, promotes the edited viewed
   text to HEAD, and returns the cursor to HEAD.
+
+  == Image panels ==
+
+  IMPORT_IMAGE -> fresh IMAGE machine -> Disk asset write -> same IMAGE
+  -> IMAGE_IMPORTED -> ordinary revisioned Mem panel update
+
+  REQUEST_IMAGE_PREVIEW -> fresh IMAGE -> Disk asset read -> same IMAGE
+  -> prepared RGBA bytes -> targeted Tk SET_IMAGE_PREVIEW
+
+  Import and preview tokens belong to Core working collections, never Mem.
+  Clear, delete, or day replacement invalidate late results. Clear updates the
+  canonical reference to null and keeps stored files. Outstanding revisioned
+  updates serialize subsequent clear/import edits using edit/save generations.
+  Expected image input errors become targeted UI messages, not fatal failures.
