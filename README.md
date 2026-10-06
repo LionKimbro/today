@@ -12,6 +12,22 @@ python -m unittest discover -s tests -v
 python tests/gui_smoke.py normal
 ```
 
+Today requires Python 3.11+ and the `machine-root` package. Its data directory
+is MachineRoot's `db-root-2026` entry followed by the `today` subdirectory.
+Missing registry configuration fails before the window or workers start.
+
+Tests can run the application with an exact temporary root:
+
+```python
+from tempfile import TemporaryDirectory
+from today.main import main
+
+with TemporaryDirectory() as directory:
+    main(data_root=directory)
+```
+
+This override bypasses the registry lookup and uses the directory directly.
+
 The GUI smoke check requires a desktop. Other modes are `delayed`,
 `early-close`, and `sentinel`; run each in a fresh process.
 
