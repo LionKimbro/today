@@ -7,7 +7,7 @@ from queue import Empty
 from time import monotonic
 from tkinter import ttk
 
-from . import tkmarkup
+from . import machine, tkmarkup
 
 
 COLORS = {
@@ -655,11 +655,15 @@ def handle_when_user_requests_window_close():
 
 
 def enqueue_core_command_and_wake_tk(command):
+    if machine.a_thread_died_unexpectedly.is_set():
+        return
     g["incoming-commands"].put(command)
     g["root"].event_generate("<<CoreMailAvailable>>", when="tail")
 
 
 def realize_core_command(command):
+    if machine.a_thread_died_unexpectedly.is_set():
+        return
     if command["type"] == "RENDER_TODAY":
         widgets["date"].configure(text=command["today-id"])
         render_orientation_panel(command["orientation"])
@@ -1685,6 +1689,8 @@ def update_global_status_from_visible_whiteboard():
 def handle_when_core_mail_arrives(event):
     try:
         while True:
+            if machine.a_thread_died_unexpectedly.is_set():
+                return
             command = g["incoming-commands"].get_nowait()
             print("Core -> Tk:", command)
             realize_core_command(command)
@@ -1694,5 +1700,15 @@ def handle_when_core_mail_arrives(event):
         pass
 
 
+def handle_when_checking_for_fatal_worker_failure():
+    """Close on the Tk thread even if Core can no longer send commands."""
+    if machine.a_thread_died_unexpectedly.is_set():
+        g["closing"] = True
+        g["root"].destroy()
+        return
+    g["root"].after(50, handle_when_checking_for_fatal_worker_failure)
+
+
 def run_tk_machine():
+    handle_when_checking_for_fatal_worker_failure()
     g["root"].mainloop()

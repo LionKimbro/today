@@ -1052,11 +1052,11 @@ def dispatch_effect(effect):
 
 
 def process_reducer_events_until_quiet():
-    while g["reducer-events"]:
+    while g["reducer-events"] and not machine.a_thread_died_unexpectedly.is_set():
         event = g["reducer-events"].pop(0)
         g["effects"].extend(reduce_event(event))
 
-    while g["effects"]:
+    while g["effects"] and not machine.a_thread_died_unexpectedly.is_set():
         dispatch_effect(g["effects"].pop(0))
 
 
@@ -1217,8 +1217,10 @@ def run_reducer_core():
     g["reducer-events"].append({"type": "START"})
     process_reducer_events_until_quiet()
 
-    while runtime["running"]:
+    while runtime["running"] and not machine.a_thread_died_unexpectedly.is_set():
         item = machine.get_current_inbox().get()
+        if machine.a_thread_died_unexpectedly.is_set():
+            break
         if item is None:
             item = {"type": "SHUTDOWN"}
 
@@ -1229,3 +1231,4 @@ def run_reducer_core():
             g["reducer-events"].append(item)
 
         process_reducer_events_until_quiet()
+    runtime["running"] = False

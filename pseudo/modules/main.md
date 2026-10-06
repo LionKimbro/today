@@ -3,6 +3,10 @@
 OWNS: startup wiring, four queues, Core/Mem/Disk threads, Tk main thread,
 shutdown joins.
 
+Required workers use machine's fatal exception boundary. Normal shutdown
+joins Core and Mem before stopping Disk. Fatal shutdown wakes all workers
+immediately; after Tk closes and workers join, main exits with status 1.
+
 WIRES:
 
 - Tk → Core semantic-event queue

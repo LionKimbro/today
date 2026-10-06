@@ -457,6 +457,8 @@ def flush_day_writes_when_due(force=False):
         if force or deadline <= now
     ]
     for day_id in day_ids:
+        if machine.a_thread_died_unexpectedly.is_set():
+            return
         g["pending-day-writes"].pop(day_id)
         mobile_stacks.create_stack()
         mobile_stacks.set_register(("day-bundle", make_day_bundle(day_id)))
@@ -476,13 +478,17 @@ def run_mem_machine():
     runtime = machine.get_current_runtime()
     runtime["running"] = True
 
-    while runtime["running"]:
+    while runtime["running"] and not machine.a_thread_died_unexpectedly.is_set():
         try:
             item = runtime["inbox"].get(timeout=get_seconds_until_next_day_write())
         except Empty:
+            if machine.a_thread_died_unexpectedly.is_set():
+                break
             flush_day_writes_when_due()
             continue
 
+        if machine.a_thread_died_unexpectedly.is_set():
+            break
         if item is None:
             flush_day_writes_when_due(force=True)
             runtime["running"] = False
@@ -490,3 +496,4 @@ def run_mem_machine():
 
         machine.handle_received_mobile_stack(item)
         flush_day_writes_when_due()
+    runtime["running"] = False

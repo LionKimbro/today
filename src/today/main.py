@@ -77,9 +77,12 @@ def main():
     tk.g["incoming-commands"] = core_to_tk
 
     tk.build_today_window()
-    disk_thread = Thread(target=disk.run_disk_machine, name="Today Disk")
-    mem_thread = Thread(target=mem.run_mem_machine, name="Today Mem")
-    core_thread = Thread(target=core.run_reducer_core, name="Today Reducer Core")
+    disk_thread = Thread(target=machine.run_worker,
+                         args=("DISK", disk.run_disk_machine), name="Today Disk")
+    mem_thread = Thread(target=machine.run_worker,
+                        args=("MEM", mem.run_mem_machine), name="Today Mem")
+    core_thread = Thread(target=machine.run_worker,
+                         args=("CORE", core.run_reducer_core), name="Today Reducer Core")
     disk_thread.start()
     mem_thread.start()
     core_thread.start()
@@ -88,3 +91,5 @@ def main():
     mem_thread.join()
     disk_inbox.put(None)
     disk_thread.join()
+    if machine.a_thread_died_unexpectedly.is_set():
+        raise SystemExit(1)
