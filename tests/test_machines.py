@@ -31,6 +31,7 @@ class MachineTests(unittest.TestCase):
         self.addCleanup(self.restore_database_root)
 
         machine.machines.clear()
+        machine.a_thread_died_unexpectedly.clear()
         self.core = runtime("CORE", {
             "PANEL_RETURNED": core.handle_when_core_receives_panel_return,
             "DAY_LAYOUT_RETURNED": core.handle_when_core_receives_day_layout,
@@ -254,6 +255,10 @@ class MachineTests(unittest.TestCase):
         finally:
             self.core["inbox"].put(None)
             self.mem["inbox"].put(None)
+            # Match main.py: Mem publishes its final writes before Disk stops.
+            for worker in workers[1:]:
+                worker.join(3)
+            self.assertFalse(workers[1].is_alive())
             self.disk["inbox"].put(None)
             for worker in workers:
                 worker.join(3)
