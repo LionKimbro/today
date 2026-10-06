@@ -6,6 +6,7 @@ Modes: normal, delayed, early-close, sentinel. No simulated Tk implementation.
 import sys
 from threading import Event, enumerate as threads
 from time import monotonic
+from tempfile import TemporaryDirectory
 
 from today import core, machine, main, mem, tk
 
@@ -86,7 +87,8 @@ def instrument_window():
 
 
 tk.build_today_window = instrument_window
-main.main()
+with TemporaryDirectory() as directory:
+    main.main(data_root=directory)
 assert not errors, errors
 assert not [t for t in threads() if t.name.startswith("Today")]
 assert all(not runtime["running"] for runtime in machine.machines.values())

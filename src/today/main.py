@@ -17,7 +17,8 @@ def finish_worker_shutdown():
     worker_threads["DISK"].join()
 
 
-def main():
+def main(data_root=None):
+    disk.initialize_data_root(data_root)
     core_inbox = Queue()
     mem_inbox = Queue()
     disk_inbox = Queue()

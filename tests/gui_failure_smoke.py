@@ -23,9 +23,8 @@ def main_check():
             tk.g["root"].after(200, tk.handle_when_user_requests_window_close)
 
         with TemporaryDirectory() as directory, \
-                patch.object(disk, "DATA_ROOT", Path(directory)), \
                 patch.object(tk, "build_today_window", build_and_schedule_close):
-            main.main()
+            main.main(data_root=directory)
             assert list(Path(directory).rglob("*.json")), "normal shutdown did not save"
         assert not machine.a_thread_died_unexpectedly.is_set()
     else:
@@ -35,10 +34,9 @@ def main_check():
             "DISK": (disk, "handle_when_disk_receives_load_day"),
         }[name]
         with TemporaryDirectory() as directory, \
-                patch.object(disk, "DATA_ROOT", Path(directory)), \
                 patch.object(module, entry, fail_worker):
             try:
-                main.main()
+                main.main(data_root=directory)
             except SystemExit as error:
                 assert error.code == 1, error.code
             else:

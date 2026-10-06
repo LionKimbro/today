@@ -1,6 +1,8 @@
 # Disk storage
 
-Root, for now: `C:\lion\installed\lions-today-db`
+Root: `Path(machineroot.get("db-root-2026")) / "today"`, resolved at startup.
+Tests can pass an exact root to `main(data_root=...)`; no `today` suffix is
+appended to that override. Importing Today does not read the registry.
 
 ```text
 YYYY/

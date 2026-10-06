@@ -23,11 +23,10 @@ def stack(*frames, registers=None):
 
 class MachineTests(unittest.TestCase):
     def setUp(self):
-        # Disk's production default points at the user's real Today database.
-        # Every test replaces it with a fresh directory and restores it afterward.
+        # Every test installs an isolated root without consulting MachineRoot.
         self.temporary_database = TemporaryDirectory()
-        self.real_data_root = disk.DATA_ROOT
-        disk.DATA_ROOT = Path(self.temporary_database.name)
+        self.real_data_root = disk.g["data-root"]
+        disk.initialize_data_root(self.temporary_database.name)
         self.addCleanup(self.restore_database_root)
 
         machine.machines.clear()
@@ -60,7 +59,7 @@ class MachineTests(unittest.TestCase):
         core.g["send-tk-command"] = self.commands.put
 
     def restore_database_root(self):
-        disk.DATA_ROOT = self.real_data_root
+        disk.g["data-root"] = self.real_data_root
         self.temporary_database.cleanup()
 
     def test_mem_exports_independent_container(self):

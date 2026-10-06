@@ -3,6 +3,9 @@
 OWNS: startup wiring, four queues, Core/Mem/Disk threads, Tk main thread,
 shutdown joins.
 
+Startup initializes Disk's root from MachineRoot before opening the window or
+starting workers. `main(data_root=...)` overrides the exact root for tests.
+
 Required workers use machine's fatal exception boundary. Normal shutdown
 joins Core and Mem before stopping Disk. Fatal shutdown wakes all workers
 immediately; after Tk closes and workers join, main exits with status 1.

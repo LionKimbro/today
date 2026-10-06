@@ -4,15 +4,26 @@ import json
 from datetime import date
 from pathlib import Path
 
+import machineroot
+
 from . import machine, mobile_stacks
 
 
-DATA_ROOT = Path(r"C:\lion\installed\lions-today-db")
+g = {"data-root": None}  # Installed at startup; unchanged while workers run.
+
+
+def initialize_data_root(data_root=None):
+    """Use the machine's Today directory, or an exact caller-selected test root."""
+    if data_root is None:
+        data_root = Path(machineroot.get("db-root-2026")) / "today"
+    g["data-root"] = Path(data_root)
 
 
 def get_day_paths(day_id):
+    if g["data-root"] is None:
+        raise RuntimeError("Today data root has not been initialized")
     day = date.fromisoformat(day_id)
-    directory = DATA_ROOT / f"{day:%Y}" / f"{day:%Y-%m}" / day_id
+    directory = g["data-root"] / f"{day:%Y}" / f"{day:%Y-%m}" / day_id
     return directory, directory / f"{day_id}.json"
 
 
