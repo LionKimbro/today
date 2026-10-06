@@ -8,7 +8,7 @@ from copy import deepcopy
 import json
 import unittest
 
-from today import core, disk, machine, mem, mobile_stacks
+from today import core, disk, machine, main, mem, mobile_stacks
 
 
 def runtime(name, handlers=None):
@@ -232,9 +232,15 @@ class MachineTests(unittest.TestCase):
         self.assertEqual(persisted["panels"][panel_id]["label"], "Saved from Mem")
 
     def exercise_workers(self, shutdown):
-        workers = [Thread(target=disk.run_disk_machine, daemon=True),
-                   Thread(target=mem.run_mem_machine, daemon=True),
-                   Thread(target=core.run_reducer_core, daemon=True)]
+        main.worker_threads.update({
+            name: Thread(target=machine.run_worker, args=(name, worker_loop), daemon=True)
+            for name, worker_loop in (
+                ("DISK", disk.run_disk_machine),
+                ("MEM", mem.run_mem_machine),
+                ("CORE", core.run_reducer_core),
+            )
+        })
+        workers = list(main.worker_threads.values())
         for worker in workers:
             worker.start()
         try:
@@ -252,27 +258,30 @@ class MachineTests(unittest.TestCase):
             })
             self.core["inbox"].put(shutdown)
             self.assertEqual(self.commands.get(timeout=3), {"type": "SHUTDOWN_COMPLETE"})
+            main.finish_worker_shutdown()
+            self.assertFalse(any(worker.is_alive() for worker in workers))
+            self.assertFalse(machine.a_thread_died_unexpectedly.is_set())
+            self.assertFalse(self.core["running"])
+            self.assertFalse(self.mem["running"])
+            self.assertFalse(self.disk["running"])
+            self.assertIsNone(self.core["current-stack"])
+            self.assertIsNone(self.mem["current-stack"])
+            self.assertIsNone(self.disk["current-stack"])
+            _, saved_day = disk.get_day_paths(core.g["current-day-id"])
+            with saved_day.open(encoding="utf-8") as source:
+                saved_bundle = json.load(source)
+            self.assertEqual(saved_bundle["panels"][panel_id]["label"], "renamed panel")
         finally:
-            self.core["inbox"].put(None)
-            self.mem["inbox"].put(None)
-            # Match main.py: Mem publishes its final writes before Disk stops.
-            for worker in workers[1:]:
-                worker.join(3)
-            self.assertFalse(workers[1].is_alive())
-            self.disk["inbox"].put(None)
-            for worker in workers:
-                worker.join(3)
-        self.assertFalse(any(worker.is_alive() for worker in workers))
-        self.assertFalse(self.core["running"])
-        self.assertFalse(self.mem["running"])
-        self.assertFalse(self.disk["running"])
-        self.assertIsNone(self.core["current-stack"])
-        self.assertIsNone(self.mem["current-stack"])
-        self.assertIsNone(self.disk["current-stack"])
-        _, saved_day = disk.get_day_paths(core.g["current-day-id"])
-        with saved_day.open(encoding="utf-8") as source:
-            saved_bundle = json.load(source)
-        self.assertEqual(saved_bundle["panels"][panel_id]["label"], "renamed panel")
+            # Fallback cleanup only after a failure; never supplies the successful
+            # shutdown under test with missing stop messages.
+            if any(worker.is_alive() for worker in workers):
+                self.core["inbox"].put(None)
+                self.mem["inbox"].put(None)
+                main.worker_threads["CORE"].join(3)
+                main.worker_threads["MEM"].join(3)
+                self.disk["inbox"].put(None)
+                main.worker_threads["DISK"].join(3)
+            main.worker_threads.update({name: None for name in main.worker_threads})
 
     def test_workers_semantic_shutdown(self):
         self.exercise_workers({"type": "SHUTDOWN"})

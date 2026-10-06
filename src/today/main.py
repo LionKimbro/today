@@ -6,6 +6,17 @@ from threading import Thread
 from . import core, disk, machine, mem, tk
 
 
+worker_threads = {"CORE": None, "MEM": None, "DISK": None}
+
+
+def finish_worker_shutdown():
+    """Wait for all producers to stop before stopping Disk's consumer."""
+    worker_threads["CORE"].join()
+    worker_threads["MEM"].join()
+    machine.machines["DISK"]["inbox"].put(None)
+    worker_threads["DISK"].join()
+
+
 def main():
     core_inbox = Queue()
     mem_inbox = Queue()
@@ -77,19 +88,16 @@ def main():
     tk.g["incoming-commands"] = core_to_tk
 
     tk.build_today_window()
-    disk_thread = Thread(target=machine.run_worker,
-                         args=("DISK", disk.run_disk_machine), name="Today Disk")
-    mem_thread = Thread(target=machine.run_worker,
-                        args=("MEM", mem.run_mem_machine), name="Today Mem")
-    core_thread = Thread(target=machine.run_worker,
-                         args=("CORE", core.run_reducer_core), name="Today Reducer Core")
-    disk_thread.start()
-    mem_thread.start()
-    core_thread.start()
+    worker_threads["DISK"] = Thread(target=machine.run_worker,
+                                    args=("DISK", disk.run_disk_machine), name="Today Disk")
+    worker_threads["MEM"] = Thread(target=machine.run_worker,
+                                   args=("MEM", mem.run_mem_machine), name="Today Mem")
+    worker_threads["CORE"] = Thread(target=machine.run_worker,
+                                    args=("CORE", core.run_reducer_core), name="Today Reducer Core")
+    worker_threads["DISK"].start()
+    worker_threads["MEM"].start()
+    worker_threads["CORE"].start()
     tk.run_tk_machine()
-    core_thread.join()
-    mem_thread.join()
-    disk_inbox.put(None)
-    disk_thread.join()
+    finish_worker_shutdown()
     if machine.a_thread_died_unexpectedly.is_set():
         raise SystemExit(1)
