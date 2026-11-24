@@ -231,3 +231,7 @@ PSEUDOCODE:
   all dirty panels and stays alive through latest-generation Mem acceptance;
   only then are STOP_CORE / STOP_MEM / SHUTDOWN_TK emitted. A close-time commit
   conflict cannot become a successful saved exit.
+
+## Attachments
+
+Core routes transient listing and open-folder requests to Disk and returns their day, session, and request identities and results to Tk through Mobile Stacks. Polling and listings are not canonical Core state.

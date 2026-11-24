@@ -20,3 +20,7 @@ Image bytes never become part of a day bundle. Clearing or deleting an Image
 panel removes its reference but retains asset files; cleanup is not automatic.
 
 DOES NOT OWN: live application meaning, canonical Mem records, or Tk state.
+
+## Attachments
+
+Disk derives each day's `files/` directory from the configured data root. Listing returns sorted immediate entry names, file sizes, and types; a missing folder is empty. Open-folder preparation creates the directory and returns its path. Expected filesystem failures are returned as results. Disk does not launch the OS file manager.

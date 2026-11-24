@@ -35,3 +35,7 @@ import jobs, or preview pixel buffers.
 
 `UPDATE_PANEL` accepts only a matching base revision, then returns the accepted
 canonical panel with its incremented revision.
+
+## Attachments
+
+Mem creates and hosts ordinary `ATTACHMENTS` panel records. The contents live in the day's `files/` directory, outside the panel record; deleting or unhosting the panel does not delete those files. Existing bundles need no migration.

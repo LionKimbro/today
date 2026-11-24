@@ -105,3 +105,7 @@ for a stable workspace geometry generation before restoring that fraction.
 
 The Tk shell follows the 03 cockpit palette. The row rail carries inert
 `1`/`2`/`3`/`x` controls beside the working row arrows.
+
+## Attachments
+
+Tk presents the selected tab's Attachments views as one polling session. It requests a listing immediately, permits one listing in flight, fades the indicator over five seconds after success, and retries errors after five seconds while retaining the last list. Session and request identities reject late listing and folder-open replies. Selection, rendering, teardown, day navigation, and close reconcile or stop the session. Tk opens the returned folder using the OS default.

@@ -35,6 +35,7 @@ def main(data_root=None):
         "inbox": core_inbox,
         "current-stack": None,
         "handlers": {
+            "ATTACHMENTS_RETURNED": core.handle_when_core_receives_attachments_result,
             "IMAGE_IMPORTED": core.handle_when_core_receives_image_import,
             "IMAGE_PREVIEW_RETURNED": core.handle_when_core_receives_image_preview,
             "PANEL_RETURNED": core.handle_when_core_receives_panel_return,
@@ -83,6 +84,8 @@ def main(data_root=None):
         "inbox": disk_inbox,
         "current-stack": None,
         "handlers": {
+            "LIST_ATTACHMENTS": disk.handle_when_disk_receives_list_attachments,
+            "OPEN_ATTACHMENTS": disk.handle_when_disk_receives_open_attachments,
             "WRITE_IMAGE_ASSET": disk.handle_when_disk_receives_write_image_asset,
             "READ_IMAGE_ASSET": disk.handle_when_disk_receives_read_image_asset,
             "LOAD_DAY": disk.handle_when_disk_receives_load_day,

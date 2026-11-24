@@ -3,6 +3,9 @@
 import tkinter
 import webbrowser
 import os
+import subprocess
+import sys
+from uuid import uuid4
 from copy import deepcopy
 from queue import Empty
 from time import monotonic
@@ -58,6 +61,7 @@ row_widgets = {}
 panel_widgets = {}
 position_widgets = {}
 image_save_ids = {}  # Panel identity -> pending 60-second drawing save callback.
+attachments_session = {}  # Selected tab polling and request identities.
 panel_widget_reg = {"host": None, "position-id": None, "panel-id": None}
 
 
@@ -294,24 +298,29 @@ def make_day_navigation_button(parent, text, command):
 
 
 def handle_when_user_clicks_previous_day_button():
+    stop_attachments_session()
     send_text_debounce_if_one_is_waiting()
     send_tab_scroll_position_if_one_is_waiting()
     g["outgoing-events"].put({"type": "SELECT_PREVIOUS_DAY"})
 
 
 def handle_when_user_clicks_next_day_button():
+    stop_attachments_session()
     send_text_debounce_if_one_is_waiting()
     send_tab_scroll_position_if_one_is_waiting()
     g["outgoing-events"].put({"type": "SELECT_NEXT_DAY"})
 
 
 def handle_when_user_clicks_today_button():
+    stop_attachments_session()
     send_text_debounce_if_one_is_waiting()
     send_tab_scroll_position_if_one_is_waiting()
     g["outgoing-events"].put({"type": "SELECT_TODAY"})
 
 
 def handle_when_user_clicks_unhost_panel_button(position_id):
+    if position_widgets[position_id]["panel-widgets"].get("attachments"):
+        stop_attachments_session()
     send_text_debounce_if_one_is_waiting()
     g["outgoing-events"].put({"type": "UNHOST_PANEL", "position-id": position_id})
 
@@ -359,6 +368,8 @@ def handle_when_user_control_clicks_delete_panel(event, panel_id):
 
 
 def send_delete_panel_event(panel_id):
+    if any(panel.get("attachments") for panel in panel_widgets.get(panel_id, [])):
+        stop_attachments_session()
     if panel_id in g["text-debounce-ids"]:
         g["root"].after_cancel(g["text-debounce-ids"].pop(panel_id))
     g["outgoing-events"].put({"type": "DELETE_PANEL", "panel-id": panel_id})
@@ -367,8 +378,10 @@ def send_delete_panel_event(panel_id):
 def handle_when_user_selects_tab(event):
     if g["selecting-tab"]:
         return
+    stop_attachments_session()
     send_pending_image_saves()
     page = event.widget.select()
+    g["root"].after_idle(reconcile_attachments_session)
     if page == str(widgets["plus-tab"]):
         g["outgoing-events"].put({"type": "CREATE_TAB"})
         return
@@ -653,6 +666,7 @@ def send_text_debounce_if_one_is_waiting():
 
 
 def handle_when_user_requests_window_close():
+    stop_attachments_session()
     if g["closing"]:
         return
 
@@ -684,6 +698,11 @@ def realize_core_command(command):
             render_empty_position(command)
         else:
             render_hosted_panel(command)
+        g["root"].after_idle(reconcile_attachments_session)
+        return
+
+    if command["type"] == "SHOW_ATTACHMENTS_RESULT":
+        handle_when_attachments_result_arrives(command)
         return
 
     if command["type"] == "RENDER_WHITEBOARD_VIEW":
@@ -751,6 +770,7 @@ def realize_core_command(command):
 
 
 def build_today_tabs(command):
+    stop_attachments_session()
     for after_id in g["scroll-save-ids"].values():
         g["root"].after_cancel(after_id)
     g["scroll-save-ids"].clear()
@@ -824,9 +844,12 @@ def build_today_tabs(command):
 
 
 def select_tab(tab_id):
+    if widgets["tabs"].select() != str(tab_widgets[tab_id]["page"]):
+        stop_attachments_session()
     g["selecting-tab"] = True
     widgets["tabs"].select(tab_widgets[tab_id]["page"])
     g["root"].after_idle(handle_after_selecting_tab)
+    g["root"].after_idle(reconcile_attachments_session)
 
 
 def handle_after_selecting_tab():
@@ -963,6 +986,7 @@ def build_tab_workspace(command, workspace):
             host.pack(fill="both", expand=True, padx=1, pady=1)
             position_widgets[position["position-id"]] = {
                 "host": host,
+                "tab-id": command["tab-id"],
                 "panel-id": None,
                 "panel-widgets": None,
             }
@@ -1038,6 +1062,8 @@ def build_row_resize_handle(parent, row_id):
 def clear_position_host(position_id):
     position = position_widgets[position_id]
     if position["panel-id"] is not None:
+        if position["panel-widgets"].get("attachments"):
+            stop_attachments_session()
         cancel_image_preview_request(position["panel-widgets"])
         panel_widgets[position["panel-id"]].remove(position["panel-widgets"])
         if not panel_widgets[position["panel-id"]]:
@@ -1068,7 +1094,7 @@ def render_empty_position(command):
     )
     creation_buttons = tkinter.Frame(host, background=COLORS["panel"])
     creation_buttons.grid(row=1, column=0, sticky="w", pady=(12, 0))
-    for panel_type, label in (("WHITEBOARD", "+ Whiteboard"), ("TODO", "+ To-Do"), ("TKMARKUP", "+ TkMarkup"), ("JOURNAL", "+ Journal"), ("IMAGE", "+ Image")):
+    for panel_type, label in (("WHITEBOARD", "+ Whiteboard"), ("TODO", "+ To-Do"), ("TKMARKUP", "+ TkMarkup"), ("JOURNAL", "+ Journal"), ("IMAGE", "+ Image"), ("ATTACHMENTS", "+ Attachments")):
         tkinter.Button(
             creation_buttons,
             text=label,
@@ -1916,6 +1942,9 @@ def render_image_strokes(panel):
 
 
 def render_hosted_panel(command):
+    if command["panel-type"] == "ATTACHMENTS":
+        render_attachments_panel(command)
+        return
     if command["panel-type"] == "IMAGE":
         render_image_panel(command)
         return
@@ -2101,3 +2130,137 @@ def handle_when_checking_for_fatal_worker_failure():
 def run_tk_machine():
     handle_when_checking_for_fatal_worker_failure()
     g["root"].mainloop()
+
+
+def render_attachments_panel(command):
+    position = position_widgets[command["position-id"]]
+    host = position["host"]
+    position["panel-id"] = command["panel-id"]
+    host.columnconfigure(0, weight=1)
+    host.rowconfigure(2, weight=1)
+    header = tkinter.Frame(host, background=COLORS["panel"])
+    header.grid(row=0, column=0, sticky="ew")
+    tkinter.Label(header, text=f'Attachments - {command["day-id"]}',
+                  background=COLORS["panel"], foreground=COLORS["primary-text"],
+                  font=("TkDefaultFont", 10, "bold")).pack(side="left")
+    set_panel_widget_context(command, header)
+    create_widget("unhost-button").pack(side="right")
+    indicator = tkinter.Label(header, text="  ", background="#000000")
+    indicator.pack(side="right", padx=8)
+    tkinter.Button(host, text="Open Folder",
+                   command=handle_when_user_opens_attachments_folder).grid(row=1, column=0, sticky="w", pady=5)
+    listing = ttk.Treeview(host, columns=("type", "size"), show="tree headings", height=5)
+    listing.heading("#0", text="Name")
+    listing.heading("type", text="Type")
+    listing.heading("size", text="Size (bytes)")
+    listing.column("type", width=70, stretch=False)
+    listing.column("size", width=100, stretch=False)
+    listing.grid(row=2, column=0, sticky="nsew")
+    status = tkinter.Label(host, text="", anchor="w", background=COLORS["panel"],
+                           foreground=COLORS["secondary-text"])
+    status.grid(row=3, column=0, sticky="ew")
+    panel = {"attachments": True, "day-id": command["day-id"], "tab-id": position["tab-id"],
+             "indicator": indicator, "listing": listing, "status": status}
+    position["panel-widgets"] = panel
+    panel_widgets.setdefault(command["panel-id"], []).append(panel)
+
+
+def stop_attachments_session():
+    if attachments_session.get("timer") is not None:
+        g["root"].after_cancel(attachments_session["timer"])
+    attachments_session.clear()
+
+
+def reconcile_attachments_session():
+    if g["closing"] or not tab_widgets or "tabs" not in widgets:
+        return
+    selected = widgets["tabs"].select()
+    active = [panel for panels in panel_widgets.values() for panel in panels
+              if panel.get("attachments") and panel["tab-id"] in tab_widgets
+              and str(tab_widgets[panel["tab-id"]]["page"]) == selected]
+    if not active:
+        stop_attachments_session()
+        return
+    identity = tuple(id(panel) for panel in active)
+    if attachments_session.get("views") == identity:
+        return
+    stop_attachments_session()
+    attachments_session.update({"id": uuid4().hex, "day-id": active[0]["day-id"],
+                                "views": identity, "panels": active, "timer": None,
+                                "listing-request": None, "open-requests": set()})
+    request_attachments_listing()
+
+
+def request_attachments_listing():
+    if not attachments_session or attachments_session["listing-request"] is not None:
+        return
+    request_id = uuid4().hex
+    attachments_session["listing-request"] = request_id
+    attachments_session["timer"] = None
+    for panel in attachments_session["panels"]:
+        panel["indicator"].configure(background="#000000")
+    g["outgoing-events"].put({"type": "LIST_ATTACHMENTS", "day-id": attachments_session["day-id"],
+                              "session-id": attachments_session["id"], "request-id": request_id})
+
+
+def handle_when_user_opens_attachments_folder():
+    if not attachments_session:
+        return
+    request_id = uuid4().hex
+    attachments_session["open-requests"].add(request_id)
+    g["outgoing-events"].put({"type": "OPEN_ATTACHMENTS", "day-id": attachments_session["day-id"],
+                              "session-id": attachments_session["id"], "request-id": request_id})
+
+
+def handle_when_attachments_result_arrives(command):
+    if (not attachments_session or command["session-id"] != attachments_session["id"]
+            or command["day-id"] != attachments_session["day-id"]):
+        return
+    result = command["result"]
+    if command["operation"] == "OPEN_ATTACHMENTS":
+        if command["request-id"] not in attachments_session["open-requests"]:
+            return
+        attachments_session["open-requests"].remove(command["request-id"])
+        if not result["error"]:
+            try:
+                if sys.platform == "win32":
+                    os.startfile(result["path"])
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", result["path"]])
+                else:
+                    subprocess.Popen(["xdg-open", result["path"]])
+            except OSError as error:
+                result = {"error": str(error)}
+        if result["error"]:
+            for panel in attachments_session["panels"]:
+                panel["status"].configure(text=result["error"])
+        return
+    if command["request-id"] != attachments_session["listing-request"]:
+        return
+    attachments_session["listing-request"] = None
+    for panel in attachments_session["panels"]:
+        panel["status"].configure(text=result["error"] or ("No attachments yet" if not result["entries"] else ""))
+        if not result["error"]:
+            listing = panel["listing"]
+            listing.delete(*listing.get_children())
+            for entry in result["entries"]:
+                listing.insert("", "end", text=entry["name"],
+                               values=(entry["type"], "" if entry["size"] is None else entry["size"]))
+    if result["error"]:
+        attachments_session["timer"] = g["root"].after(5000, request_attachments_listing)
+    else:
+        attachments_session["fade-start"] = monotonic()
+        fade_attachments_indicator()
+
+
+def fade_attachments_indicator():
+    if not attachments_session:
+        return
+    remaining = max(0.0, 1.0 - (monotonic() - attachments_session["fade-start"]) / 5.0)
+    green = int(255 * remaining)
+    for panel in attachments_session["panels"]:
+        panel["indicator"].configure(background=f"#00{green:02x}00")
+    if remaining == 0:
+        request_attachments_listing()
+    else:
+        attachments_session["timer"] = g["root"].after(100, fade_attachments_indicator)

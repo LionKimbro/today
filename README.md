@@ -59,3 +59,8 @@ by `gui_image_smoke.py`.
 See [the architecture reconstruction](docs/architecture-review.md) for the
 machine model, observations, remaining questions, and candidate lessons for
 review. The bounded implementation sketches live in `pseudo/`.
+
+Attachments panels show the immediate contents of a day's `files/` folder.
+Open Folder creates it when needed and opens it in the system file manager.
+The list refreshes every five seconds after a successful scan; removing a
+panel leaves its files in place.

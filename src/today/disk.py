@@ -105,3 +105,35 @@ def handle_when_disk_receives_read_image_asset():
 def run_disk_machine():
     machine.claim_machine("DISK")
     machine.run_machine()
+
+
+def handle_when_disk_receives_list_attachments():
+    directory, _ = get_day_paths(mobile_stacks.get_register("day-id"))
+    folder = directory / "files"
+    try:
+        try:
+            entries = list(folder.iterdir())
+        except FileNotFoundError:
+            entries = []
+        records = []
+        for entry in entries:
+            metadata = entry.stat()
+            is_directory = entry.is_dir()
+            records.append({"name": entry.name, "type": "Folder" if is_directory else "File",
+                            "size": None if is_directory else metadata.st_size})
+        records.sort(key=lambda item: (item["name"].casefold(), item["name"]))
+        result = {"entries": records, "error": None}
+    except OSError as error:
+        result = {"error": str(error)}
+    mobile_stacks.set_register(("result", result))
+
+
+def handle_when_disk_receives_open_attachments():
+    directory, _ = get_day_paths(mobile_stacks.get_register("day-id"))
+    folder = directory / "files"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        result = {"path": str(folder.resolve()), "error": None}
+    except OSError as error:
+        result = {"error": str(error)}
+    mobile_stacks.set_register(("result", result))

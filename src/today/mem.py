@@ -168,14 +168,14 @@ def handle_when_mem_receives_get_panel():
 def handle_when_mem_receives_create_panel():
     day_id = mobile_stacks.get_register("day-id")
     panel_type = mobile_stacks.get_register("panel-type")
-    if panel_type not in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP", "IMAGE"}:
+    if panel_type not in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP", "IMAGE", "ATTACHMENTS"}:
         raise RuntimeError(f"cannot create panel type {panel_type}")
     panel_id = f"{panel_type.lower()}-{uuid4().hex}"
     panel = {
         "id": panel_id,
         "day-id": day_id,
         "type": panel_type,
-        "label": {"WHITEBOARD": "Whiteboard", "TODO": "To-Do", "JOURNAL": "Journal", "TKMARKUP": "TkMarkup", "IMAGE": "Image"}[panel_type],
+        "label": {"WHITEBOARD": "Whiteboard", "TODO": "To-Do", "JOURNAL": "Journal", "TKMARKUP": "TkMarkup", "IMAGE": "Image", "ATTACHMENTS": "Attachments"}[panel_type],
         "text": "",
         "revision": 1,
     }

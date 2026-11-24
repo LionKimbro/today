@@ -67,6 +67,7 @@ def get_position_rendering(position_id):
         "panel-id": panel["id"],
         "panel-label": panel["label"],
         "panel-type": panel["type"],
+        "day-id": panel["day-id"],
     }
     if panel["type"] == "WHITEBOARD":
         return {**rendering, **get_whiteboard_view(panel)}
@@ -88,7 +89,7 @@ def get_available_panel_ids(position_id):
         panel_id
         for panel_id in g["known-panel-ids"]
         if panel_id not in hosted_panel_ids
-        and visible_panels[panel_id]["type"] in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP", "IMAGE"}
+        and visible_panels[panel_id]["type"] in {"WHITEBOARD", "TODO", "JOURNAL", "TKMARKUP", "IMAGE", "ATTACHMENTS"}
     ]
 
 
@@ -395,6 +396,10 @@ def make_whiteboard_snapshot(panel):
 
 
 def reduce_event(event):
+    if event["type"] in {"LIST_ATTACHMENTS", "OPEN_ATTACHMENTS"}:
+        return [dict(event)]
+    if event["type"] == "ATTACHMENTS_RETURNED":
+        return [{**event, "type": "SHOW_ATTACHMENTS_RESULT"}]
     if event["type"] in {
         "IMPORT_IMAGE", "CLEAR_IMAGE", "IMAGE_IMPORTED", "REQUEST_IMAGE_PREVIEW",
         "IMAGE_PREVIEW_RECEIVED",
@@ -906,6 +911,18 @@ def reduce_event(event):
 
 
 def dispatch_effect(effect):
+    if effect["type"] in {"LIST_ATTACHMENTS", "OPEN_ATTACHMENTS"}:
+        mobile_stacks.create_stack()
+        for key in ("day-id", "request-id", "session-id"):
+            mobile_stacks.set_register((key, effect[key]))
+        mobile_stacks.set_register(("operation", effect["type"]))
+        mobile_stacks.push_frame({"machine": "CORE", "entry": "ATTACHMENTS_RETURNED"})
+        mobile_stacks.push_frame({"machine": "DISK", "entry": effect["type"]})
+        machine.route_current_stack()
+        return
+    if effect["type"] == "SHOW_ATTACHMENTS_RESULT":
+        g["send-tk-command"](effect)
+        return
     if effect["type"] in {"IMPORT_IMAGE", "LOAD_IMAGE_PREVIEW"}:
         mobile_stacks.create_stack()
         for key in ("day-id", "panel-id", "request-id"):
@@ -1444,3 +1461,11 @@ def run_reducer_core():
 
         process_reducer_events_until_quiet()
     runtime["running"] = False
+
+
+def handle_when_core_receives_attachments_result():
+    g["reducer-events"].append({
+        "type": "ATTACHMENTS_RETURNED",
+        **{key: mobile_stacks.get_register(key) for key in
+           ("day-id", "request-id", "session-id", "operation", "result")},
+    })
