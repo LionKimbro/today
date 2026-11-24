@@ -84,7 +84,9 @@ class AttachmentTests(unittest.TestCase):
             self.assertEqual(panel["listing"].rows, [])
             tk.handle_when_attachments_result_arrives(reply)
             self.assertEqual(panel["listing"].rows[0]["text"], "a")
-            self.assertTrue(panel["indicator"].options["background"].startswith("#00f"))
+            self.assertNotEqual(panel["indicator"].options["background"], "#000000")
+            self.assertGreater(int(panel["indicator"].options["background"][5:7], 16),
+                               int(panel["indicator"].options["background"][1:3], 16))
             tk.g["root"].after_cancel(tk.attachments_session["timer"])
             tk.request_attachments_listing()
             request = tk.g["outgoing-events"].get_nowait()

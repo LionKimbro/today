@@ -140,6 +140,21 @@ def build_today_window():
         background=[("selected", COLORS["control"]), ("active", COLORS["panel"])],
         foreground=[("selected", COLORS["primary-text"]), ("active", COLORS["primary-text"])],
     )
+    style.configure(
+        "Attachments.Treeview",
+        background=COLORS["editor"],
+        fieldbackground=COLORS["editor"],
+        foreground=COLORS["primary-text"],
+        bordercolor=COLORS["border"],
+        lightcolor=COLORS["border"],
+        darkcolor=COLORS["border"],
+    )
+    style.map("Attachments.Treeview",
+              background=[("selected", COLORS["accent-blue"])],
+              foreground=[("selected", COLORS["primary-text"])])
+    style.configure("Attachments.Treeview.Heading", background=COLORS["control"],
+                    foreground=COLORS["secondary-text"], relief="flat")
+    style.map("Attachments.Treeview.Heading", background=[("active", COLORS["divider"])])
     style.configure("Panel.TFrame", background=COLORS["panel"])
     style.configure("Panel.TLabel", background=COLORS["panel"], foreground=COLORS["primary-text"])
     style.configure(
@@ -2145,9 +2160,13 @@ def render_attachments_panel(command):
     create_widget("unhost-button").pack(side="right")
     indicator = tkinter.Label(header, text="  ", background="#000000")
     indicator.pack(side="right", padx=8)
-    tkinter.Button(host, text="Open Folder",
+    tkinter.Button(host, text="Open Folder", background=COLORS["control"],
+                   foreground=COLORS["secondary-text"], activebackground=COLORS["divider"],
+                   activeforeground=COLORS["primary-text"], relief="flat", borderwidth=0,
+                   padx=8, pady=4,
                    command=handle_when_user_opens_attachments_folder).grid(row=1, column=0, sticky="w", pady=5)
-    listing = ttk.Treeview(host, columns=("type", "size"), show="tree headings", height=5)
+    listing = ttk.Treeview(host, columns=("type", "size"), show="tree headings",
+                           height=5, style="Attachments.Treeview")
     listing.heading("#0", text="Name")
     listing.heading("type", text="Type")
     listing.heading("size", text="Size (bytes)")
@@ -2255,9 +2274,11 @@ def fade_attachments_indicator():
     if not attachments_session:
         return
     remaining = max(0.0, 1.0 - (monotonic() - attachments_session["fade-start"]) / 5.0)
-    green = int(255 * remaining)
+    accent = COLORS["accent-blue"].lstrip("#")
+    color = "#" + "".join(f"{int(int(accent[i:i + 2], 16) * remaining):02x}"
+                          for i in (0, 2, 4))
     for panel in attachments_session["panels"]:
-        panel["indicator"].configure(background=f"#00{green:02x}00")
+        panel["indicator"].configure(background=color)
     if remaining == 0:
         request_attachments_listing()
     else:

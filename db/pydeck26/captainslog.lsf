@@ -1,0 +1,14 @@
+title: Captain's Log
+version: 1
+
+
+== 2026-11-24 15:29:41 ==
+guid: 6c8d2b78-a905-4cfa-af88-970c03773cf9
+date: 2026-11-24
+time: 15:29:41
+hook: implemented Attachments panel
+tags: attachments panel
+major: false
+indent: 2
+
+  I noticed that -- I am getting a little rusty on the internal guts of the architecture.  It's because I've been working on the next generation of the core architecture at such lenght, that I'm forgetting a little bit about how it worked in here.
