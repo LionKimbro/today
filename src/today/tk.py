@@ -297,25 +297,23 @@ def make_day_navigation_button(parent, text, command):
     ).pack(side="left")
 
 
-def handle_when_user_clicks_previous_day_button():
+def send_day_navigation(event_type):
     stop_attachments_session()
     send_text_debounce_if_one_is_waiting()
     send_tab_scroll_position_if_one_is_waiting()
-    g["outgoing-events"].put({"type": "SELECT_PREVIOUS_DAY"})
+    g["outgoing-events"].put({"type": event_type})
+
+
+def handle_when_user_clicks_previous_day_button():
+    send_day_navigation("SELECT_PREVIOUS_DAY")
 
 
 def handle_when_user_clicks_next_day_button():
-    stop_attachments_session()
-    send_text_debounce_if_one_is_waiting()
-    send_tab_scroll_position_if_one_is_waiting()
-    g["outgoing-events"].put({"type": "SELECT_NEXT_DAY"})
+    send_day_navigation("SELECT_NEXT_DAY")
 
 
 def handle_when_user_clicks_today_button():
-    stop_attachments_session()
-    send_text_debounce_if_one_is_waiting()
-    send_tab_scroll_position_if_one_is_waiting()
-    g["outgoing-events"].put({"type": "SELECT_TODAY"})
+    send_day_navigation("SELECT_TODAY")
 
 
 def handle_when_user_clicks_unhost_panel_button(position_id):
