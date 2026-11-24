@@ -18,6 +18,7 @@ g = {
     "selected-tab-id": None,
     "pending-day-id": None,
     "orientation-position": None,
+    "shutdown-requested": False,
 }
 
 tabs = {}
@@ -31,6 +32,7 @@ image_previews = {}  # (panel-id, width, height) -> outstanding preview token.
 
 def initialize_core_state():
     g["current-day-id"] = date.today().isoformat()
+    g["shutdown-requested"] = False
 
 
 def get_position_id(row_id, column):
@@ -130,7 +132,9 @@ def get_day_rendering():
 
 
 def install_panel_snapshot(panel):
-    snapshot = dict(panel)
+    snapshot = deepcopy(panel)
+    if panel.get("type") == "IMAGE":
+        snapshot.setdefault("image-strokes", [])
     snapshot["dirty"] = False
     snapshot["awaiting"] = None
     snapshot["edit-generation"] = 0
@@ -161,6 +165,7 @@ def get_image_panel_rendering(panel_id):
         "image-asset": visible_panels[panel_id].get("image-asset"),
         "image-busy": panel_id in image_jobs,
         "image-error": image_errors.get(panel_id),
+        "image-strokes": deepcopy(visible_panels[panel_id].get("image-strokes", [])),
     }
 
 
@@ -175,7 +180,9 @@ def forget_image_requests(panel_id):
 def prepare_image_panel_update(panel_id, asset):
     panel = visible_panels[panel_id]
     panel["image-asset"] = asset
+    panel["image-strokes"] = []
     panel["dirty"] = True
+    panel["awaiting"] = "MEM_UPDATE"
     panel["edit-generation"] += 1
     effects = [{"type": "RENDER_IMAGE_PANEL", "panel-id": panel_id}]
     if panel["save-generation"] is None:
@@ -188,6 +195,21 @@ def reduce_image_event(event):
     panel = visible_panels.get(panel_id)
     if panel is None or panel["type"] != "IMAGE":
         return []
+    if event["type"] == "IMAGE_STROKE_ADDED":
+        if not panel.get("image-asset") or event.get("image-asset") != panel["image-asset"]:
+            return []
+        panel.setdefault("image-strokes", []).append(deepcopy(event["stroke"]))
+        panel["dirty"] = True
+        panel["edit-generation"] += 1
+        panel["awaiting"] = "IMAGE_DEBOUNCE"
+        return [{"type": "RENDER_IMAGE_PANEL", "panel-id": panel_id}]
+    if event["type"] == "SAVE_IMAGE_DRAWING":
+        if not panel["dirty"]:
+            return []
+        panel["awaiting"] = "MEM_UPDATE"
+        if panel["save-generation"] is not None:
+            return []
+        return [prepare_text_panel_update(panel_id)]
     if event["type"] == "IMPORT_IMAGE":
         if panel_id in image_jobs:
             return []
@@ -250,7 +272,7 @@ def reduce_image_event(event):
 
 
 def get_day_navigation_effect_when_ready():
-    if g["pending-day-id"] is None:
+    if g["pending-day-id"] is None or g["shutdown-requested"]:
         return []
     if any(panel["dirty"] for panel in visible_panels.values()):
         return []
@@ -261,7 +283,24 @@ def get_day_navigation_effect_when_ready():
 
 def request_day_navigation(day_id):
     g["pending-day-id"] = day_id
-    return get_day_navigation_effect_when_ready()
+    return [*prepare_pending_image_saves(), *get_day_navigation_effect_when_ready()]
+
+
+def prepare_pending_image_saves():
+    effects = []
+    for panel_id, panel in visible_panels.items():
+        if panel["type"] != "IMAGE" or not panel["dirty"]:
+            continue
+        panel["awaiting"] = "MEM_UPDATE"
+        if panel["save-generation"] is None:
+            effects.append(prepare_text_panel_update(panel_id))
+    return effects
+
+
+def get_shutdown_effects_when_ready():
+    if not g["shutdown-requested"] or any(panel["dirty"] for panel in visible_panels.values()):
+        return []
+    return [{"type": "STOP_CORE"}, {"type": "STOP_MEM"}, {"type": "SHUTDOWN_TK"}]
 
 
 def prepare_text_panel_update(
@@ -276,7 +315,7 @@ def prepare_text_panel_update(
         "type": "UPDATE_PANEL",
         "panel-id": panel_id,
         "base-revision": panel["revision"],
-        "proposed-panel": get_canonical_panel_fields(panel),
+        "proposed-panel": deepcopy(get_canonical_panel_fields(panel)),
         "save-generation": panel["save-generation"],
     }
     if should_render_after_accept:
@@ -359,6 +398,7 @@ def reduce_event(event):
     if event["type"] in {
         "IMPORT_IMAGE", "CLEAR_IMAGE", "IMAGE_IMPORTED", "REQUEST_IMAGE_PREVIEW",
         "IMAGE_PREVIEW_RECEIVED",
+        "IMAGE_STROKE_ADDED", "SAVE_IMAGE_DRAWING",
     }:
         return reduce_image_event(event)
     if event["type"] == "START":
@@ -445,7 +485,8 @@ def reduce_event(event):
         ]
 
     if event["type"] == "SELECT_TAB":
-        return [{"type": "SELECT_TAB", "tab-id": event["tab-id"]}]
+        return [*prepare_pending_image_saves(),
+                {"type": "SELECT_TAB", "tab-id": event["tab-id"]}]
 
     if event["type"] == "TAB_SELECTED":
         g["selected-tab-id"] = event["tab-id"]
@@ -584,7 +625,8 @@ def reduce_event(event):
         ]
 
     if event["type"] == "UNHOST_PANEL":
-        return [{"type": "UNHOST_PANEL", "position-id": event["position-id"]}]
+        return [*prepare_pending_image_saves(),
+                {"type": "UNHOST_PANEL", "position-id": event["position-id"]}]
 
     if event["type"] == "DELETE_PANEL":
         if (
@@ -798,7 +840,9 @@ def reduce_event(event):
         return [{"type": "SET_PANEL_LABEL", "panel-id": event["panel-id"]}]
 
     if event["type"] == "TEXT_PANEL_UPDATE_ACCEPTED":
-        panel = visible_panels[event["panel-id"]]
+        panel = visible_panels.get(event["panel-id"])
+        if panel is None:
+            return get_shutdown_effects_when_ready()
         panel["revision"] = event["accepted-revision"]
         should_render_todo_list = event.get("render-after-accept", False) or panel.pop(
             "render-todo-list-after-accept", False
@@ -809,6 +853,8 @@ def reduce_event(event):
         )
         if panel["edit-generation"] > event["save-generation"]:
             panel["save-generation"] = None
+            if panel["awaiting"] == "IMAGE_DEBOUNCE" and not g["shutdown-requested"]:
+                return []
             return [
                 prepare_text_panel_update(
                     event["panel-id"],
@@ -834,9 +880,11 @@ def reduce_event(event):
             effects.append(
                 {"type": "SET_WHITEBOARD_HISTORY_CURSOR", "panel-id": event["panel-id"]}
             )
-        return [*effects, *get_day_navigation_effect_when_ready()]
+        return [*effects, *get_day_navigation_effect_when_ready(), *get_shutdown_effects_when_ready()]
 
     if event["type"] == "PANEL_UPDATE_CONFLICT":
+        if g["shutdown-requested"]:
+            raise RuntimeError("Cannot complete saved shutdown: panel update conflict")
         panel = visible_panels.get(event["panel-id"])
         if panel is not None and panel["type"] == "IMAGE":
             forget_image_requests(event["panel-id"])
@@ -848,7 +896,11 @@ def reduce_event(event):
         return []
 
     if event["type"] == "SHUTDOWN":
-        return [{"type": "STOP_CORE"}, {"type": "STOP_MEM"}, {"type": "SHUTDOWN_TK"}]
+        g["shutdown-requested"] = True
+        effects = [prepare_text_panel_update(panel_id)
+                   for panel_id, panel in visible_panels.items()
+                   if panel["dirty"] and panel["save-generation"] is None]
+        return [*effects, *get_shutdown_effects_when_ready()]
 
     return []
 

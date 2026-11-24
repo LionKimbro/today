@@ -183,6 +183,7 @@ def handle_when_mem_receives_create_panel():
         panel["history"] = []
     if panel_type == "IMAGE":
         panel["image-asset"] = None
+        panel["image-strokes"] = []
     panels[panel_id] = panel
     mark_day_for_disk_save(day_id)
     print("Mem CREATE_PANEL:", panel_id, "for", day_id)

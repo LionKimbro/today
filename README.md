@@ -27,6 +27,19 @@ Image work runs in router-created machines with unique addresses. Machines
 can visit other machines and resume before explicitly retiring. The main
 thread joins and reaps them; uncaught worker failures remain process-fatal.
 
+Use **Red pen** to draw over an image. Ink is stored separately as panel data;
+the original image stays unchanged. Drawing saves after 60 seconds idle, or
+when leaving the panel, tab, or day. Normal close finishes an active stroke,
+waits for pending edits to reach Mem, and joins Disk after its final writes.
+Export/copy flattening is not implemented.
+
+Drawing checks (isolated data; require a desktop):
+
+```powershell
+python tests/gui_image_drawing.py
+python tests/gui_image_drawing_roundtrip.py
+```
+
 Tests can run the application with an exact temporary root:
 
 ```python

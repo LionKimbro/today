@@ -119,7 +119,11 @@ Permanent addresses remain registered until the final shutdown sequence.
 Tk's close request, or Core's `None` sentinel, enters Core's semantic
 `SHUTDOWN` path. Its effects close dynamic creation, request Core retirement,
 wake/cancel dynamic workers, send Mem its sentinel, and tell Tk it may close.
-Mem force-flushes pending canonical day bundles to Disk before returning.
+Before these stop effects, Core forces dirty panel commits and remains alive
+until Mem accepts their latest edit generations. Tk finishes active drawing
+and flushes drawing/text/scroll callbacks before requesting close. A commit
+conflict during close is an error, not a successful saved exit. Mem then
+force-flushes pending canonical day bundles to Disk before returning.
 
 After Tk leaves its main loop, the application and worker tests use the same
 `main.finish_worker_shutdown()` function:
@@ -208,7 +212,8 @@ Tk creates and retains each host's `PhotoImage`; image objects do not cross
 the GUI seam. Preview requests debounce geometry changes by 100 ms and fit
 without upscaling. GIF presentation is static, using the first frame.
 
-Mem stores only a day-relative `image-asset` reference or null. Original image
+Mem stores a day-relative `image-asset` reference or null and separate
+`image-strokes` data. Original image
 bytes and prepared preview pixels are not serialized into the day JSON.
 Disk accepts only generated asset reference shapes, preventing arbitrary
 relative paths from becoming stored asset reads.
@@ -225,9 +230,21 @@ import can also leave an unreferenced asset. This intentionally avoids deleting
 a file still referenced by an older saved bundle; garbage collection is not
 implemented.
 
+### Red pen and drawing saves
+
+Red pen is a separate Canvas layer. Completed strokes become working Core
+data immediately; points are normalized to the fitted image and pen width is
+relative to its shorter dimension. Old records without strokes mean empty.
+Preview replacement and resizing reproject the layer without changing assets.
+A 60-second idle timer requests a revisioned commit. Panel/tab/day departure
+submits without Disk confirmation; normal close waits for latest-generation
+Mem acceptance before the final Mem flush and Disk join. Save proposals copy
+their stroke lists so later edits cannot mutate an in-flight snapshot. Clear
+removes the drawing. Export/copy flattening remains deferred.
+
 ## Execution evidence
 
-The current standard-library suite passes **43 tests**. Coverage includes
+The current standard-library suite passes **51 tests**. Coverage includes
 snapshot isolation and transfer ownership; revisioned updates and normal
 worker shutdown; MachineRoot resolution/override; fatal failure and repeated
 failure reporting; TkMarkup; dynamic creation/address replacement; repeated
@@ -242,6 +259,14 @@ exercise input callbacks, busy/clear behavior, prepared display, stale results,
 and teardown. A full-app image roundtrip imports into an isolated root, closes,
 restarts and displays the saved image, then clears and persists the empty
 reference while retaining the file.
+
+The drawing GUI checks additionally cover scaling, dots, boundaries, the
+60-second callback, and close during an active stroke. A held-Mem full-app
+roundtrip verifies a second stroke is saved before exit, survives restart, and
+leaves the original asset byte-for-byte unchanged. These checks are
+`gui_image_drawing.py` and `gui_image_drawing_roundtrip.py`.
+An injected final Disk write failure also verifies exit status 1 rather than
+a successful saved close.
 
 These are scripted Windows Tk checks, not manual visual inspection or proof
 of every desktop integration. Clipboard pixels are mocked in worker tests;

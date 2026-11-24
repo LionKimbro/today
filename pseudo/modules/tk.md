@@ -67,6 +67,14 @@ or resizing. Results whose asset or requested bounds are obsolete are ignored.
 Unhosting and full rebuild cancel pending callbacks and invalidate old widget
 records; hidden hosts request their preview when mapped.
 
+Red pen draws a separate Canvas ink layer. Tk captures one unfinished stroke;
+release sends normalized points, red color, and relative width to Core. A dot
+is a one-point stroke. The pen begins only within the fitted image, clamps
+dragged points to its bounds, and resets a panel-owned 60-second save callback.
+Active drawing cancels that callback. Leave/tab/day/normal close and widget
+teardown finish strokes and flush drawing timers; clear discards pending ink.
+Preview replacement/resize reprojects marks without changing the image bytes.
+
 The 50 ms main-thread fatal-failure poll also reaps exited worker runtimes.
 Reaping joins and removes completed machines; it does not request retirement.
 

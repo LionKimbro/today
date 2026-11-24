@@ -3,6 +3,7 @@
 import tkinter
 import webbrowser
 import os
+from copy import deepcopy
 from queue import Empty
 from time import monotonic
 from tkinter import filedialog, ttk
@@ -56,6 +57,7 @@ tab_widgets = {}
 row_widgets = {}
 panel_widgets = {}
 position_widgets = {}
+image_save_ids = {}  # Panel identity -> pending 60-second drawing save callback.
 panel_widget_reg = {"host": None, "position-id": None, "panel-id": None}
 
 
@@ -365,6 +367,7 @@ def send_delete_panel_event(panel_id):
 def handle_when_user_selects_tab(event):
     if g["selecting-tab"]:
         return
+    send_pending_image_saves()
     page = event.widget.select()
     if page == str(widgets["plus-tab"]):
         g["outgoing-events"].put({"type": "CREATE_TAB"})
@@ -643,6 +646,7 @@ def handle_when_text_debounce_expires(panel_id):
 
 
 def send_text_debounce_if_one_is_waiting():
+    send_pending_image_saves()
     for panel_id, after_id in list(g["text-debounce-ids"].items()):
         g["root"].after_cancel(after_id)
         handle_when_text_debounce_expires(panel_id)
@@ -652,8 +656,9 @@ def handle_when_user_requests_window_close():
     if g["closing"]:
         return
 
-    g["closing"] = True
     send_text_debounce_if_one_is_waiting()
+    send_tab_scroll_position_if_one_is_waiting()
+    g["closing"] = True
     g["outgoing-events"].put({"type": "SHUTDOWN"})
 
 
@@ -1551,6 +1556,8 @@ def render_tkmarkup_view(command):
 def cancel_image_preview_request(panel):
     if "image-canvas" not in panel:
         return
+    finish_image_stroke(panel)
+    submit_image_save(panel["panel-id"])
     panel["image-active"] = False
     if panel["image-resize-id"] is not None:
         g["root"].after_cancel(panel["image-resize-id"])
@@ -1595,6 +1602,7 @@ def render_image_panel(command):
         "image-active": True, "image-asset": None, "image-busy": False,
         "image-error": None, "image-photo": None, "image-item": None,
         "image-resize-id": None, "image-requested": None,
+        "image-strokes": [], "image-stroke": None, "image-pen-enabled": False,
     }
     for text, callback in (
         ("Paste from Clipboard", lambda: handle_when_user_pastes_image(panel)),
@@ -1614,6 +1622,11 @@ def render_image_panel(command):
         activebackground=COLORS["divider"], activeforeground=COLORS["primary-text"],
         relief="flat", borderwidth=0, padx=8, pady=4,
     )
+    panel["image-pen"] = tkinter.Button(
+        controls, text="Red pen", command=lambda: handle_when_user_toggles_image_pen(panel),
+        background=COLORS["control"], foreground="#FF3030",
+        activebackground=COLORS["divider"], relief="flat", borderwidth=0, padx=8, pady=4,
+    )
     panel["image-status"] = tkinter.Label(
         content, background=COLORS["panel"], foreground=COLORS["secondary-text"],
         anchor="w", justify="left", wraplength=300,
@@ -1621,6 +1634,9 @@ def render_image_panel(command):
     panel["image-status"].grid(row=2, column=0, sticky="ew", pady=(4, 0))
     canvas.bind("<Configure>", lambda event: handle_when_image_space_resizes(panel))
     canvas.bind("<Map>", lambda event: handle_when_image_space_resizes(panel))
+    canvas.bind("<ButtonPress-1>", lambda event: handle_when_user_starts_image_stroke(event, panel))
+    canvas.bind("<B1-Motion>", lambda event: handle_when_user_extends_image_stroke(event, panel))
+    canvas.bind("<ButtonRelease-1>", lambda event: handle_when_user_finishes_image_stroke(event, panel))
     canvas.drop_target_register(DND_FILES)
     canvas.dnd_bind("<<Drop>>", lambda event: handle_when_user_drops_image(event, panel))
     position["panel-widgets"] = panel
@@ -1669,6 +1685,8 @@ def send_image_import(panel, source):
 def handle_when_user_clears_image(panel):
     if not panel["image-active"] or g["closing"]:
         return
+    panel["image-stroke"] = None
+    cancel_image_save(panel["panel-id"])
     g["outgoing-events"].put({"type": "CLEAR_IMAGE", "panel-id": panel["panel-id"]})
 
 
@@ -1681,6 +1699,9 @@ def render_image_view(command):
 def render_image_presentation(panel, command):
     asset = command.get("image-asset")
     if asset != panel["image-asset"]:
+        panel["image-stroke"] = None
+        panel["image-pen-enabled"] = False
+        panel["image-canvas"].configure(cursor="")
         panel["image-requested"] = None
         panel["image-photo"] = None
         if panel["image-item"] is not None:
@@ -1689,6 +1710,7 @@ def render_image_presentation(panel, command):
     panel["image-asset"] = asset
     panel["image-busy"] = command.get("image-busy", False)
     panel["image-error"] = command.get("image-error")
+    panel["image-strokes"] = deepcopy(command.get("image-strokes", []))
     if asset:
         panel["image-empty-controls"].pack_forget()
     else:
@@ -1697,6 +1719,14 @@ def render_image_presentation(panel, command):
         panel["image-clear"].pack(side="right")
     else:
         panel["image-clear"].pack_forget()
+    if asset:
+        panel["image-pen"].pack(side="left")
+    else:
+        panel["image-pen"].pack_forget()
+    panel["image-pen"].configure(
+        relief="sunken" if panel["image-pen-enabled"] else "flat",
+        state="normal" if panel["image-photo"] is not None and not panel["image-busy"] else "disabled",
+    )
     for button in panel["image-buttons"]:
         button.configure(state="disabled" if panel["image-busy"] else "normal")
     panel["image-status"].configure(
@@ -1721,6 +1751,7 @@ def handle_when_image_space_resizes(panel):
     panel["image-status"].configure(wraplength=max(1, canvas.winfo_width()))
     if panel["image-item"] is not None:
         canvas.coords(panel["image-item"], *center)
+    render_image_strokes(panel)
     if panel["image-resize-id"] is not None:
         g["root"].after_cancel(panel["image-resize-id"])
     panel["image-resize-id"] = g["root"].after(
@@ -1770,6 +1801,118 @@ def set_image_preview(command):
             canvas.itemconfigure(panel["image-item"], image=photo)
             canvas.coords(panel["image-item"], *center)
         canvas.itemconfigure(panel["image-placeholder"], state="hidden")
+        panel["image-pen"].configure(state="disabled" if panel["image-busy"] else "normal")
+        render_image_strokes(panel)
+
+
+def cancel_image_save(panel_id):
+    after_id = image_save_ids.pop(panel_id, None)
+    if after_id is not None:
+        g["root"].after_cancel(after_id)
+
+
+def submit_image_save(panel_id):
+    if panel_id not in image_save_ids:
+        return
+    cancel_image_save(panel_id)
+    if not machine.a_thread_died_unexpectedly.is_set():
+        g["outgoing-events"].put({"type": "SAVE_IMAGE_DRAWING", "panel-id": panel_id})
+
+
+def send_pending_image_saves():
+    for panels in list(panel_widgets.values()):
+        for panel in panels:
+            if "image-canvas" in panel:
+                finish_image_stroke(panel)
+    for panel_id in list(image_save_ids):
+        submit_image_save(panel_id)
+
+
+def handle_when_user_toggles_image_pen(panel):
+    if g["closing"] or panel["image-photo"] is None or not panel["image-active"]:
+        return
+    finish_image_stroke(panel)
+    panel["image-pen-enabled"] = not panel["image-pen-enabled"]
+    panel["image-pen"].configure(relief="sunken" if panel["image-pen-enabled"] else "flat")
+    panel["image-canvas"].configure(cursor="crosshair" if panel["image-pen-enabled"] else "")
+
+
+def get_image_point(event, panel):
+    photo = panel["image-photo"]
+    canvas = panel["image-canvas"]
+    left = (canvas.winfo_width() - photo.width()) / 2
+    top = (canvas.winfo_height() - photo.height()) / 2
+    return [(event.x - left) / photo.width(), (event.y - top) / photo.height()]
+
+
+def handle_when_user_starts_image_stroke(event, panel):
+    if (g["closing"] or not panel["image-active"] or not panel["image-pen-enabled"]
+            or panel["image-photo"] is None or panel["image-busy"]):
+        return
+    point = get_image_point(event, panel)
+    if any(value < 0 or value > 1 for value in point):
+        return
+    cancel_image_save(panel["panel-id"])
+    photo = panel["image-photo"]
+    panel["image-stroke"] = {"points": [point], "color": "#FF3030",
+                             "width": 3 / min(photo.width(), photo.height())}
+    render_image_strokes(panel)
+
+
+def handle_when_user_extends_image_stroke(event, panel):
+    if panel["image-stroke"] is None or g["closing"]:
+        return
+    point = [max(0, min(1, value)) for value in get_image_point(event, panel)]
+    if point != panel["image-stroke"]["points"][-1]:
+        panel["image-stroke"]["points"].append(point)
+    render_image_strokes(panel)
+
+
+def handle_when_user_finishes_image_stroke(event, panel):
+    handle_when_user_extends_image_stroke(event, panel)
+    finish_image_stroke(panel)
+
+
+def finish_image_stroke(panel):
+    stroke = panel["image-stroke"]
+    if stroke is None:
+        return
+    panel["image-stroke"] = None
+    if machine.a_thread_died_unexpectedly.is_set():
+        return
+    panel["image-strokes"].append(deepcopy(stroke))
+    g["outgoing-events"].put({"type": "IMAGE_STROKE_ADDED", "panel-id": panel["panel-id"],
+                              "image-asset": panel["image-asset"], "stroke": stroke})
+    cancel_image_save(panel["panel-id"])
+    image_save_ids[panel["panel-id"]] = g["root"].after(
+        60000, lambda: submit_image_save(panel["panel-id"])
+    )
+    render_image_strokes(panel)
+
+
+def render_image_strokes(panel):
+    canvas = panel["image-canvas"]
+    canvas.delete("image-ink")
+    photo = panel["image-photo"]
+    if photo is None:
+        return
+    width, height = photo.width(), photo.height()
+    left, top = (canvas.winfo_width() - width) / 2, (canvas.winfo_height() - height) / 2
+    strokes = panel["image-strokes"]
+    if panel["image-stroke"] is not None:
+        strokes = [*strokes, panel["image-stroke"]]
+    for stroke in strokes:
+        points = [(left + x * width, top + y * height) for x, y in stroke["points"]]
+        thickness = stroke["width"] * min(width, height)
+        if len(points) == 1:
+            x, y = points[0]
+            radius = thickness / 2
+            canvas.create_oval(x - radius, y - radius, x + radius, y + radius,
+                               fill=stroke["color"], outline="", tags="image-ink")
+        elif points:
+            canvas.create_line(*[value for point in points for value in point],
+                               fill=stroke["color"], width=thickness,
+                               capstyle="round", joinstyle="round", tags="image-ink")
 
 
 def render_hosted_panel(command):

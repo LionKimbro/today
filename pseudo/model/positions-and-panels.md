@@ -45,6 +45,7 @@ Core may retain a visible panel snapshot; Mem remains canonical.
 | `history` | Whiteboard snapshots only |
 | `revision` | Canonical update revision |
 | `image-asset` | Image panel only: day-relative asset reference, or null |
+| `image-strokes` | Image panel only: red strokes with normalized points and relative width |
 
 ## Hosting
 
@@ -85,6 +86,9 @@ Image panels keep one JPEG, PNG, or GIF asset reference; clipboard pixels become
 PNG. Import controls reappear when cleared. Clearing removes the reference,
 not the day-owned file. GIF display is static (first frame). Image bytes and
 preview pixels never enter canonical panel records or the JSON day bundle.
+Pen marks are separate data in the day JSON, not modifications of the asset.
+Missing `image-strokes` on an older panel means empty. See `image-drawing.md`
+for debounce, leave, and normal-close boundaries.
 
 ## TkMarkup panels
 

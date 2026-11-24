@@ -10,7 +10,8 @@ OWNS:
 
 Lifecycle uses the shared runtime's retirement procedure. `None` in the Core inbox
 becomes `SHUTDOWN`, whose effects stop Core, send Mem its sentinel, and allow
-Tk to close. This does not drain outstanding return stacks.
+Tk to close, after all dirty panel generations have reached Mem. This does not
+drain every outstanding return stack or finish pending image imports.
 
 An unloaded panel cannot be renamed. Rename currently changes only the active
 Core copy before the ordinary revisioned Mem commit.
@@ -222,3 +223,11 @@ PSEUDOCODE:
   canonical reference to null and keeps stored files. Outstanding revisioned
   updates serialize subsequent clear/import edits using edit/save generations.
   Expected image input errors become targeted UI messages, not fatal failures.
+
+  IMAGE_STROKE_ADDED copies a completed stroke into the working panel and marks
+  it dirty without committing. SAVE_IMAGE_DRAWING commits a frozen snapshot;
+  newer strokes keep their own debounce unless a leave/close requested a flush.
+  Tab/unhost/day selection submits pending image edits. Normal SHUTDOWN forces
+  all dirty panels and stays alive through latest-generation Mem acceptance;
+  only then are STOP_CORE / STOP_MEM / SHUTDOWN_TK emitted. A close-time commit
+  conflict cannot become a successful saved exit.
